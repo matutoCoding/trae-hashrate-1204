@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   FileText,
@@ -7,16 +7,12 @@ import {
   User,
   Building,
   CalendarDays,
-  Clock,
   CheckCircle2,
   XCircle,
   AlertTriangle,
-  MessageSquare,
   Send,
-  ChevronRight,
   Ticket,
   Hourglass,
-  Eye,
   ThumbsUp,
   ThumbsDown,
   Activity,
@@ -30,10 +26,11 @@ import {
   CheckCircle,
   AlertOctagon,
   Users,
+  BarChart3,
 } from 'lucide-react';
 import { useAppStore } from '@/store';
-import { REQUEST_STATUS_MAP, NODE_STATUS_MAP, SECRECY_LEVEL_MAP, AUDIT_ACTION_LABELS, type NodeStatus, type AuditAction } from '@/types';
-import { formatTime, formatRelativeTime, formatCountdown } from '@/utils';
+import { REQUEST_STATUS_MAP, SECRECY_LEVEL_MAP, AUDIT_ACTION_LABELS } from '@/types';
+import { formatTime, formatRelativeTime, REMINDER_HANDLER_TYPE_LABEL } from '@/utils';
 
 const AUDIT_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   FileText,
@@ -56,7 +53,7 @@ const AUDIT_ICONS: Record<string, React.ComponentType<{ className?: string }>> =
 export default function ApprovalDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { archiveRequests, approvalNodes, reminderLogs, auditLogs, queueNumbers, approveNode, rejectNode, triggerEscalation, takeNumber, currentUserId } = useAppStore();
+  const { archiveRequests, approvalNodes, reminderLogs, auditLogs, queueNumbers, approveNode, rejectNode, takeNumber, acknowledgeReminder, currentUserId } = useAppStore();
   const [, setTick] = useState(0);
   const [showOpinionModal, setShowOpinionModal] = useState<null | 'approve' | 'reject'>(null);
   const [opinion, setOpinion] = useState('');
@@ -120,14 +117,6 @@ export default function ApprovalDetail() {
         navigate('/queue');
       }, 2000);
     }
-  };
-
-  const isNodeActive = (node: typeof nodes[0]) => {
-    return node.nodeOrder === req.currentNode && (node.status === 'active' || node.status === 'timeout' || node.status === 'escalated');
-  };
-
-  const isNodeWaiting = (node: typeof nodes[0]) => {
-    return node.nodeOrder > req.currentNode && node.status === 'pending';
   };
 
   return (
@@ -362,6 +351,13 @@ export default function ApprovalDetail() {
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                   办结小结
                 </h3>
+                <button
+                  onClick={() => navigate('/completion-review')}
+                  className="text-xs text-brand-600 hover:text-brand-800 flex items-center gap-1"
+                >
+                  <BarChart3 className="w-3 h-3" />
+                  全部复盘
+                </button>
               </div>
               {requestQueueNumbers.filter((q) => q.summary).map((q) => {
                 const s = q.summary!;
@@ -433,280 +429,13 @@ export default function ApprovalDetail() {
           <div className="card">
             <div className="card-header">
               <h3 className="font-semibold text-slate-900 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-brand-500" />
-                审批流程轨迹
-              </h3>
-              <span className="text-xs text-slate-400">共 {nodes.length} 个审批节点</span>
-            </div>
-
-            <div className="p-6">
-              <div className="relative">
-                {nodes.map((node, idx) => {
-                  const isActive = isNodeActive(node);
-                  const isWaiting = isNodeWaiting(node);
-                  const cd = node.deadline ? formatCountdown(node.deadline) : null;
-
-                  return (
-                    <div key={node.id} className="relative pb-8 last:pb-0">
-                      {idx < nodes.length - 1 && (
-                        <div className={`absolute left-[19px] top-12 bottom-0 w-0.5 ${
-                          node.status === 'approved' ? 'bg-emerald-300' : 'bg-slate-200'
-                        }`} />
-                      )}
-
-                      <div className={`relative flex gap-5 ${isActive ? 'animate-pulse-slow' : ''}`}>
-                        <div className="relative z-10 flex-shrink-0">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg border-4 border-white ${
-                            node.status === 'approved'
-                              ? 'bg-emerald-500'
-                              : node.status === 'rejected'
-                              ? 'bg-red-500'
-                              : node.status === 'timeout' || node.status === 'escalated'
-                              ? 'bg-orange-500 animate-blink'
-                              : isActive
-                              ? 'bg-brand-500 ring-4 ring-brand-100'
-                              : isWaiting
-                              ? 'bg-slate-200'
-                              : 'bg-slate-300'
-                          }`}>
-                            {node.status === 'approved' ? (
-                              <CheckCircle2 className="w-5 h-5 text-white" />
-                            ) : node.status === 'rejected' ? (
-                              <XCircle className="w-5 h-5 text-white" />
-                            ) : node.status === 'timeout' || node.status === 'escalated' ? (
-                              <Hourglass className="w-5 h-5 text-white" />
-                            ) : isActive ? (
-                              <Eye className="w-5 h-5 text-white" />
-                            ) : (
-                              <span className="text-slate-400 text-sm font-bold">{node.nodeOrder}</span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className={`flex-1 rounded-xl border p-5 transition-all ${
-                          isActive
-                            ? 'border-brand-200 bg-brand-50/50 shadow-md'
-                            : node.status === 'rejected'
-                            ? 'border-red-200 bg-red-50/50'
-                            : node.status === 'timeout' || node.status === 'escalated'
-                            ? 'border-orange-200 bg-orange-50/50'
-                            : isWaiting
-                            ? 'border-slate-100 bg-slate-50/50'
-                            : 'border-slate-200 bg-white'
-                        }`}>
-                          <div className="flex items-start justify-between gap-4 flex-wrap">
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <h4 className="font-semibold text-slate-900">
-                                  节点 {node.nodeOrder}：{node.nodeName}
-                                </h4>
-                                {isWaiting ? (
-                                  <span className="badge bg-slate-100 text-slate-500">
-                                    <span className="w-1.5 h-1.5 rounded-full mr-1.5 bg-slate-300" />
-                                    等待前一节点完成
-                                  </span>
-                                ) : (
-                                  <span className={`badge ${
-                                    node.status === 'approved'
-                                      ? 'bg-emerald-50 text-emerald-700'
-                                      : node.status === 'rejected'
-                                      ? 'bg-red-50 text-red-700'
-                                      : node.status === 'escalated'
-                                      ? 'bg-red-50 text-red-700'
-                                      : node.status === 'timeout'
-                                      ? 'bg-orange-50 text-orange-700'
-                                      : node.status === 'active'
-                                      ? 'bg-blue-50 text-blue-700'
-                                      : 'bg-slate-100 text-slate-600'
-                                  }`}>
-                                    <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${NODE_STATUS_MAP[node.status].dotColor} ${isActive ? 'animate-pulse' : ''}`} />
-                                    {node.status === 'active' ? '处理中' : NODE_STATUS_MAP[node.status].label}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-sm text-slate-500 mt-1 flex items-center gap-2">
-                                <User className="w-3.5 h-3.5" />
-                                <span className="font-medium text-slate-700">{node.approverName}</span>
-                                <span>·</span>
-                                <span>{node.approverTitle}</span>
-                              </div>
-                            </div>
-
-                            <div className="text-right">
-                              {isWaiting ? (
-                                <div className="text-sm text-slate-400">
-                                  <Clock className="w-4 h-4 inline mr-1" />
-                                  尚未开始计时
-                                </div>
-                              ) : isActive && cd ? (
-                                <div>
-                                  <div className={`font-mono text-lg font-bold ${
-                                    cd.isOverdue
-                                      ? 'text-red-600 animate-blink'
-                                      : cd.isWarning
-                                      ? 'text-amber-600'
-                                      : 'text-brand-600'
-                                  }`}>
-                                    {cd.isOverdue ? '已超时' : cd.text}
-                                  </div>
-                                  {(cd.isOverdue || cd.isWarning) && isCurrentApprover && (
-                                    <button
-                                      onClick={() => triggerEscalation(node.id)}
-                                      className="mt-2 text-xs text-orange-600 hover:text-orange-700 font-medium flex items-center gap-1 ml-auto"
-                                    >
-                                      <AlertTriangle className="w-3 h-3" />
-                                      申请升级催办
-                                    </button>
-                                  )}
-                                </div>
-                              ) : node.handledAt ? (
-                                <div>
-                                  <div className="text-sm font-medium text-slate-700">
-                                    {formatTime(node.handledAt)}
-                                  </div>
-                                  <div className="text-[11px] text-slate-400 mt-0.5">
-                                    {formatRelativeTime(node.handledAt)}处理
-                                  </div>
-                                </div>
-                              ) : null}
-                            </div>
-                          </div>
-
-                          <div className="mt-3 pt-3 border-t border-slate-100/80">
-                            <div className="grid grid-cols-3 gap-3 text-xs">
-                              <div>
-                                <span className="text-slate-400">开始时间</span>
-                                <div className="font-medium text-slate-700 mt-0.5">
-                                  {node.startedAt ? formatTime(node.startedAt) : '-'}
-                                </div>
-                              </div>
-                              <div>
-                                <span className="text-slate-400">截止时间</span>
-                                <div className="font-medium text-slate-700 mt-0.5">
-                                  {node.deadline ? formatTime(node.deadline) : '-'}
-                                </div>
-                              </div>
-                              <div>
-                                <span className="text-slate-400">处理时间</span>
-                                <div className="font-medium text-slate-700 mt-0.5">
-                                  {node.handledAt ? formatTime(node.handledAt) : '-'}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          {node.opinion && (
-                            <div className="mt-4 p-3.5 rounded-lg bg-white/80 border border-slate-100">
-                              <div className="flex items-start gap-2">
-                                <MessageSquare className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
-                                <div className="flex-1">
-                                  <div className="text-[11px] font-medium text-slate-500 mb-1">
-                                    {node.status === 'approved' ? '审批意见' : '驳回理由'}
-                                  </div>
-                                  <p className="text-sm text-slate-700 leading-relaxed">{node.opinion}</p>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-
-                          {isActive && cd && (node.status === 'active' || node.status === 'timeout') && (
-                            <div className="mt-4">
-                              <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                                <div
-                                  className={`h-full rounded-full transition-all duration-1000 ${
-                                    cd.isOverdue
-                                      ? 'bg-red-500'
-                                      : cd.isWarning
-                                      ? 'bg-amber-500'
-                                      : 'bg-brand-500'
-                                  }`}
-                                  style={{
-                                    width: cd.isOverdue
-                                      ? '100%'
-                                      : `${Math.max(5, 100 - ((node.deadline! - Date.now()) / (node.timeoutMinutes * 60 * 1000)) * 100)}%`,
-                                  }}
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                <div className="relative flex gap-5">
-                  <div className="relative z-10 flex-shrink-0">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg border-4 border-white ${
-                      req.status === 'approved' || req.status === 'queuing' || req.status === 'completed'
-                        ? 'bg-emerald-500'
-                        : req.status === 'rejected'
-                        ? 'bg-red-500'
-                        : 'bg-slate-300'
-                    }`}>
-                      {req.status === 'rejected' ? (
-                        <XCircle className="w-5 h-5 text-white" />
-                      ) : (
-                        <CheckCircle2 className="w-5 h-5 text-white" />
-                      )}
-                    </div>
-                  </div>
-                  <div className={`flex-1 rounded-xl border p-5 ${
-                    req.status === 'rejected'
-                      ? 'border-red-200 bg-red-50/50'
-                      : req.status === 'approved' || req.status === 'queuing' || req.status === 'completed'
-                      ? 'border-emerald-200 bg-emerald-50/50'
-                      : 'border-slate-200 bg-slate-50'
-                  }`}>
-                    <h4 className="font-semibold text-slate-900 flex items-center gap-2">
-                      流程终点
-                      <ChevronRight className="w-4 h-4 text-slate-400" />
-                      <span className={`badge ${status.bgColor} ${status.color}`}>
-                        {status.label}
-                      </span>
-                    </h4>
-                    <div className="text-sm text-slate-600 mt-2">
-                      {req.status === 'rejected' && (
-                        <>
-                          <p className="text-red-700 mb-2">申请被驳回，原因如下：</p>
-                          <p className="bg-white/80 p-3 rounded-lg border border-red-100">
-                            {req.rejectionReason || '未填写驳回理由'}
-                          </p>
-                        </>
-                      )}
-                      {req.status === 'approved' && (
-                        <p>审批全部通过，<Link to="/queue/take" className="text-brand-600 font-medium hover:underline">前往取号排队 →</Link></p>
-                      )}
-                      {req.status === 'queuing' && (
-                        <p>已加入等待队列，<Link to="/queue" className="text-brand-600 font-medium hover:underline">查看叫号大屏 →</Link></p>
-                      )}
-                      {req.status === 'completed' && (
-                        <p>调卷业务已办理完成</p>
-                      )}
-                      {(req.status === 'approving' || req.status === 'checking') && (
-                        <p className="text-slate-500">请等待后续节点审批完成</p>
-                      )}
-                      {req.approvedAt && (
-                        <p className="text-xs text-slate-500 mt-2">
-                          完成时间：{formatTime(req.approvedAt)}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-header">
-              <h3 className="font-semibold text-slate-900 flex items-center gap-2">
                 <Activity className="w-4 h-4 text-brand-500" />
-                完整轨迹日志
+                全流程复盘时间轴
               </h3>
-              <span className="text-xs text-slate-400">共 {requestAuditLogs.length} 条记录</span>
+              <span className="text-xs text-slate-400">{requestAuditLogs.length} 条记录 · {nodes.length} 个审批节点</span>
             </div>
-            <div className="p-6 max-h-[500px] overflow-y-auto">
+
+            <div className="p-6 max-h-[800px] overflow-y-auto">
               {requestAuditLogs.length === 0 ? (
                 <div className="py-12 text-center text-slate-400 text-sm">
                   <Activity className="w-10 h-10 mx-auto mb-3 opacity-50" />
@@ -718,6 +447,10 @@ export default function ApprovalDetail() {
                     const actionConfig = AUDIT_ACTION_LABELS[log.action];
                     const isLast = idx === requestAuditLogs.length - 1;
                     const IconComp = AUDIT_ICONS[actionConfig.icon] || Activity;
+
+                    const matchingReminder = (log.action === 'reminder_auto' || log.action === 'reminder_escalate' || log.action === 'reminder_acknowledge')
+                      ? reminders.find((r) => r.requestId === log.requestId && Math.abs(r.triggeredAt - log.timestamp) < 1000)
+                      : undefined;
 
                     return (
                       <div key={log.id} className="relative pl-8 pb-4">
@@ -746,6 +479,16 @@ export default function ApprovalDetail() {
                                   节点{log.nodeOrder} · {log.nodeName}
                                 </span>
                               )}
+                              {(log.action === 'reminder_auto' || log.action === 'reminder_escalate') && matchingReminder && (
+                                <span className={`ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${REMINDER_HANDLER_TYPE_LABEL[matchingReminder.handlerType].bgColor} ${REMINDER_HANDLER_TYPE_LABEL[matchingReminder.handlerType].color}`}>
+                                  {REMINDER_HANDLER_TYPE_LABEL[matchingReminder.handlerType].label}
+                                </span>
+                              )}
+                              {log.action === 'reminder_acknowledge' && matchingReminder && matchingReminder.acknowledged && (
+                                <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-emerald-100 border-emerald-200 text-emerald-700">
+                                  已签收
+                                </span>
+                              )}
                             </div>
                             <span className="text-[10px] text-slate-400 whitespace-nowrap">
                               {formatTime(log.timestamp)}
@@ -754,13 +497,100 @@ export default function ApprovalDetail() {
                           <p className="text-xs text-slate-600 leading-relaxed mt-1">
                             {log.detail}
                           </p>
-                          <div className="text-[10px] text-slate-400 mt-1.5">
-                            操作人：<span className="text-slate-500">{log.operatorName}</span>
+                          <div className="flex items-center gap-2 mt-1.5">
+                            <span className="text-[10px] text-slate-400">
+                              操作人：<span className="text-slate-500">{log.operatorName}</span>
+                            </span>
+                            {log.action === 'reminder_acknowledge' && matchingReminder && !matchingReminder.acknowledged && (
+                              <button
+                                onClick={() => acknowledgeReminder(matchingReminder.id)}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-brand-50 text-brand-700 border border-brand-200 hover:bg-brand-100 transition-colors"
+                              >
+                                <UserCheck className="w-3 h-3" />
+                                签收
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
                     );
                   })}
+
+                  {requestQueueNumbers.some((q) => q.summary) && (
+                    <>
+                      {requestAuditLogs.length > 0 && (
+                        <div className="absolute left-[11px] top-6 bottom-0 w-0.5 bg-emerald-200" />
+                      )}
+                      <div className="relative pl-8">
+                        <div className="absolute left-0 top-1 w-6 h-6 rounded-full flex items-center justify-center shadow-md bg-emerald-100">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        </div>
+                        <div className="rounded-lg border border-emerald-200 bg-gradient-to-br from-emerald-50/80 to-emerald-50/40 p-4">
+                          <h4 className="font-semibold text-emerald-800 flex items-center gap-2">
+                            办结小结
+                            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                          </h4>
+                          {requestQueueNumbers.filter((q) => q.summary).map((q) => {
+                            const s = q.summary!;
+                            return (
+                              <div key={q.id} className="mt-3 space-y-3">
+                                <div className="grid grid-cols-4 gap-2">
+                                  <div className="rounded-lg bg-white border border-emerald-200 p-2.5">
+                                    <div className="flex items-center gap-1 text-[10px] text-slate-500 mb-1">
+                                      <Hourglass className="w-3 h-3" />
+                                      等待时长
+                                    </div>
+                                    <div className="text-lg font-bold text-slate-800">{s.waitingDurationMinutes}<span className="text-xs font-normal text-slate-500 ml-0.5">分</span></div>
+                                  </div>
+                                  <div className="rounded-lg bg-white border border-emerald-200 p-2.5">
+                                    <div className="flex items-center gap-1 text-[10px] text-slate-500 mb-1">
+                                      <Activity className="w-3 h-3" />
+                                      办理时长
+                                    </div>
+                                    <div className="text-lg font-bold text-emerald-700">{s.processingDurationMinutes}<span className="text-xs font-normal text-slate-500 ml-0.5">分</span></div>
+                                  </div>
+                                  <div className="rounded-lg bg-white border border-emerald-200 p-2.5">
+                                    <div className="flex items-center gap-1 text-[10px] text-slate-500 mb-1">
+                                      <Timer className="w-3 h-3" />
+                                      总耗时
+                                    </div>
+                                    <div className="text-lg font-bold text-slate-800">{s.totalDurationMinutes}<span className="text-xs font-normal text-slate-500 ml-0.5">分</span></div>
+                                  </div>
+                                  <div className="rounded-lg bg-white border border-emerald-200 p-2.5">
+                                    <div className="flex items-center gap-1 text-[10px] text-slate-500 mb-1">
+                                      {s.overtimeOccurred ? <AlertOctagon className="w-3 h-3 text-red-500" /> : <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
+                                      过号情况
+                                    </div>
+                                    <div className={`text-lg font-bold ${s.overtimeOccurred ? 'text-red-600' : 'text-emerald-700'}`}>
+                                      {s.overtimeOccurred ? `${s.overtimeCount}次` : '无'}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="rounded-lg bg-white border border-emerald-200 p-2.5">
+                                  <div className="flex items-center gap-1 text-[10px] text-slate-500 mb-1.5">
+                                    <Users className="w-3 h-3" />
+                                    审批节点（共 {s.approvalNodeCount} 个）
+                                  </div>
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {s.approvers.length > 0 ? (
+                                      s.approvers.map((a, i) => (
+                                        <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[11px] border border-emerald-200">
+                                          <CheckCircle2 className="w-3 h-3" />
+                                          {a}
+                                        </span>
+                                      ))
+                                    ) : (
+                                      <span className="text-[11px] text-slate-500">无审批记录</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>

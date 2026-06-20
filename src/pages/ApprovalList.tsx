@@ -27,12 +27,11 @@ export default function ApprovalList() {
   const [completedRange, setCompletedRange] = useState<'today' | 'week' | 'month' | 'all'>('all');
 
   const rangeStart = (() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
     if (sortBy !== 'completed' || completedRange === 'all') return 0;
-    if (completedRange === 'today') return today.getTime();
-    if (completedRange === 'week') return today.getTime() - 7 * 24 * 60 * 60 * 1000;
-    return today.getTime() - 30 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    if (completedRange === 'today') return now - 24 * 60 * 60 * 1000;
+    if (completedRange === 'week') return now - 7 * 24 * 60 * 60 * 1000;
+    return now - 30 * 24 * 60 * 60 * 1000;
   })();
 
   const filtered = archiveRequests.filter((r) => {

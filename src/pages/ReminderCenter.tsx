@@ -22,7 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import { useAppStore } from '@/store';
-import { NODE_STATUS_MAP, type ReminderLog } from '@/types';
+import { NODE_STATUS_MAP, type ReminderLog, type SecrecyLevel, type ReminderHandlerType, SECRECY_LEVEL_MAP } from '@/types';
 import { formatTime, formatRelativeTime, formatCountdown, REMINDER_HANDLER_TYPE_LABEL } from '@/utils';
 import { useNavigate } from 'react-router-dom';
 
@@ -34,6 +34,8 @@ export default function ReminderCenter() {
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<'node' | 'handler'>('node');
   const [selectedHandlerId, setSelectedHandlerId] = useState<string | null>(null);
+  const [drillFilterSecrecy, setDrillFilterSecrecy] = useState<SecrecyLevel | 'all'>('all');
+  const [drillFilterType, setDrillFilterType] = useState<ReminderHandlerType | 'all'>('all');
 
   useEffect(() => {
     const timer = setInterval(() => setTick((t) => t + 1), 1000);
@@ -381,15 +383,29 @@ export default function ReminderCenter() {
             (() => {
               const g = handlerGroups.find((h) => h.handlerId === selectedHandlerId);
               if (!g) return null;
-              const items = [...g.selfItems, ...g.supervisorItems, ...g.directorItems].sort(
+              const allItems = [...g.selfItems, ...g.supervisorItems, ...g.directorItems].sort(
                 (a, b) => a.triggeredAt - b.triggeredAt
               );
+              const filteredItems = allItems.filter((r) => {
+                if (drillFilterType !== 'all' && r.handlerType !== drillFilterType) return false;
+                if (drillFilterSecrecy !== 'all') {
+                  const req = archiveRequests.find((x) => x.id === r.requestId);
+                  if (!req || req.secrecyLevel !== drillFilterSecrecy) return false;
+                }
+                return true;
+              });
+              const ackTimes = allItems
+                .filter((r) => r.acknowledged && r.acknowledgedAt)
+                .map((r) => r.acknowledgedAt! - r.triggeredAt);
+              const avgAckMinutes = ackTimes.length > 0
+                ? Math.round(ackTimes.reduce((s, t) => s + t, 0) / ackTimes.length / 60000)
+                : 0;
               return (
                 <div className="card p-5 border-amber-200 bg-amber-50/20">
                   <div className="flex items-center justify-between mb-5 pb-4 border-b border-slate-200">
                     <div className="flex items-center gap-3">
                       <button
-                        onClick={(e) => { e.stopPropagation(); setSelectedHandlerId(null); }}
+                        onClick={(e) => { e.stopPropagation(); setSelectedHandlerId(null); setDrillFilterSecrecy('all'); setDrillFilterType('all'); }}
                         className="w-8 h-8 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 flex items-center justify-center text-slate-600"
                       >
                         <ArrowLeft className="w-4 h-4" />
@@ -403,23 +419,64 @@ export default function ReminderCenter() {
                             <h3 className="font-bold text-slate-900 text-lg">{g.handlerName}</h3>
                             <span className="text-xs text-slate-500">{g.handlerTitle}</span>
                           </div>
-                          <div className="mt-1 text-xs text-slate-500">
-                            待签收 <span className="font-bold text-red-600">{g.unacknowledged}</span> ·
-                            已升级督办 <span className="font-bold text-orange-600">{g.escalatedCount}</span> ·
-                            最久超时 {Math.max(0, Math.floor((Date.now() - g.oldestTriggeredAt) / 60000))}分钟
+                          <div className="mt-1 text-xs text-slate-500 flex items-center gap-2 flex-wrap">
+                            <span>待签收 <span className="font-bold text-red-600">{g.unacknowledged}</span></span>
+                            <span>· 已升级 <span className="font-bold text-orange-600">{g.escalatedCount}</span></span>
+                            <span>· 平均签收 <span className="font-bold text-emerald-600">{avgAckMinutes}分</span></span>
+                            <span>· 最久超时 <span className="font-bold text-slate-700">{Math.max(0, Math.floor((Date.now() - g.oldestTriggeredAt) / 60000))}分</span></span>
                           </div>
                         </div>
                       </div>
                     </div>
                     <button
-                      onClick={(e) => { e.stopPropagation(); setSelectedHandlerId(null); }}
+                      onClick={(e) => { e.stopPropagation(); setSelectedHandlerId(null); setDrillFilterSecrecy('all'); setDrillFilterType('all'); }}
                       className="w-8 h-8 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 flex items-center justify-center text-slate-600"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
+                  <div className="flex items-center gap-2 flex-wrap mb-4">
+                    <span className="text-xs text-slate-500">筛选：</span>
+                    <div className="card p-0.5 inline-flex gap-0.5 border border-slate-200">
+                      <span className="px-2 py-1 text-[10px] text-slate-400">密级</span>
+                      {(['all', 'public', 'internal', 'secret', 'top-secret'] as const).map((sl) => (
+                        <button
+                          key={sl}
+                          onClick={() => setDrillFilterSecrecy(sl)}
+                          className={`px-2 py-1 rounded text-[10px] font-medium transition-all ${
+                            drillFilterSecrecy === sl
+                              ? 'bg-slate-800 text-white'
+                              : 'text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          {sl === 'all' ? '全部' : SECRECY_LEVEL_MAP[sl].label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="card p-0.5 inline-flex gap-0.5 border border-slate-200">
+                      <span className="px-2 py-1 text-[10px] text-slate-400">类型</span>
+                      {(['all', 'self', 'supervisor', 'director'] as const).map((t) => (
+                        <button
+                          key={t}
+                          onClick={() => setDrillFilterType(t)}
+                          className={`px-2 py-1 rounded text-[10px] font-medium transition-all ${
+                            drillFilterType === t
+                              ? 'bg-slate-800 text-white'
+                              : 'text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          {t === 'all' ? '全部' : REMINDER_HANDLER_TYPE_LABEL[t].label}
+                        </button>
+                      ))}
+                    </div>
+                    {filteredItems.length !== allItems.length && (
+                      <span className="text-[10px] text-slate-500">
+                        显示 {filteredItems.length}/{allItems.length} 条
+                      </span>
+                    )}
+                  </div>
                   <div className="space-y-3">
-                    {items.map((r) => {
+                    {filteredItems.map((r) => {
                       const req = archiveRequests.find((x) => x.id === r.requestId);
                       const node = approvalNodes.find((n) => n.id === r.nodeId);
                       const tl = REMINDER_HANDLER_TYPE_LABEL[r.handlerType];

@@ -9,6 +9,7 @@ import QueueBoard from '@/pages/QueueBoard';
 import QueueManage from '@/pages/QueueManage';
 import TakeNumber from '@/pages/TakeNumber';
 import OvertimeHandle from '@/pages/OvertimeHandle';
+import CompletionReview from '@/pages/CompletionReview';
 import { useAutoReminder } from '@/hooks/useAutoReminder';
 
 function AppInner() {
@@ -27,6 +28,7 @@ function AppInner() {
         <Route path="/queue/manage" element={<QueueManage />} />
         <Route path="/queue/take" element={<TakeNumber />} />
         <Route path="/overtime" element={<OvertimeHandle />} />
+        <Route path="/completion-review" element={<CompletionReview />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
     </Routes>

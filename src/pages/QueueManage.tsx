@@ -20,6 +20,7 @@ import {
   MonitorSpeaker,
   ChevronRight,
   CircleCheckBig,
+  BarChart3,
 } from 'lucide-react';
 import { useAppStore } from '@/store';
 import { QUEUE_STATUS_MAP } from '@/types';
@@ -128,6 +129,13 @@ export default function QueueManage() {
           </div>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={() => navigate('/completion-review')}
+            className="btn-secondary text-xs"
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            办结复盘
+          </button>
           <div className="flex items-center gap-2 bg-white rounded-lg border border-slate-200 px-3 py-2">
             <span className="text-sm text-slate-500">当前窗口</span>
             <select

@@ -599,11 +599,41 @@ export const useAppStore = create<AppState>()(
       setCurrentUser: (userId) => set({ currentUserId: userId }),
 
       resetData: () => {
+        const computedQueueNumbers = mockQueueNumbers.map((q) => {
+          if (q.status !== 'completed' || !q.completedAt) return q;
+          const calledAt = q.calledAt || q.takenAt;
+          const processingAt = q.processingAt || q.calledAt || q.takenAt;
+          const waitingDurationMinutes = Math.max(0, Math.round((calledAt - q.takenAt) / 60000));
+          const processingDurationMinutes = Math.max(0, Math.round((q.completedAt - processingAt) / 60000));
+          const totalDurationMinutes = Math.max(0, Math.round((q.completedAt - q.takenAt) / 60000));
+          const nodes = mockApprovalNodes.filter((n) => n.requestId === q.requestId);
+          const approvers = nodes
+            .filter((n) => n.status === 'approved')
+            .map((n) => n.approverName + '（' + n.nodeName + '）');
+          return {
+            ...q,
+            summary: {
+              queueId: q.id,
+              requestId: q.requestId,
+              numberCode: q.numberCode,
+              windowNo: q.windowNo,
+              createdAt: q.completedAt,
+              waitingDurationMinutes,
+              processingDurationMinutes,
+              totalDurationMinutes,
+              overtimeOccurred: q.overtimeCount > 0,
+              overtimeCount: q.overtimeCount,
+              approvalNodeCount: nodes.length,
+              approvers,
+              note: '等待叫号 ' + waitingDurationMinutes + ' 分钟，办理时长 ' + processingDurationMinutes + ' 分钟；共经过 ' + nodes.length + ' 个审批节点，' + approvers.length + ' 人签批',
+            },
+          };
+        });
         set({
           archiveRequests: mockArchiveRequests,
           approvalNodes: mockApprovalNodes,
           reminderLogs: mockReminderLogs,
-          queueNumbers: mockQueueNumbers,
+          queueNumbers: computedQueueNumbers,
           overtimeRecords: mockOvertimeRecords,
           auditLogs: mockAuditLogs,
           nextSequence: mockNextSequence,
