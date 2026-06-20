@@ -19,6 +19,7 @@ import {
   Settings2,
   MonitorSpeaker,
   ChevronRight,
+  CircleCheckBig,
 } from 'lucide-react';
 import { useAppStore } from '@/store';
 import { QUEUE_STATUS_MAP } from '@/types';
@@ -31,6 +32,7 @@ export default function QueueManage() {
     callNextNumber,
     recallNumber,
     confirmProcessing,
+    completeProcessing,
     markOvertime,
     requeueNumber,
     currentUserId,
@@ -65,6 +67,7 @@ export default function QueueManage() {
     .filter((q) => q.status === 'waiting')
     .sort((a, b) => a.sequence - b.sequence);
   const processing = queueNumbers.filter((q) => q.status === 'processing');
+  const completed = queueNumbers.filter((q) => q.status === 'completed');
   const invalid = queueNumbers.filter((q) => q.status === 'invalid');
 
   const addHistory = (numberCode: string, action: string) => {
@@ -152,11 +155,12 @@ export default function QueueManage() {
       </div>
 
       {/* 统计 */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {[
           { label: '等待中', value: waiting.length, icon: Users, color: 'from-blue-500 to-blue-600' },
           { label: '叫号中', value: currentCalling ? 1 : 0, icon: Bell, color: 'from-amber-500 to-orange-500' },
           { label: '办理中', value: processing.length, icon: CheckCircle2, color: 'from-emerald-500 to-emerald-600' },
+          { label: '已办结', value: completed.length, icon: CircleCheckBig, color: 'from-teal-500 to-teal-600' },
           { label: '已作废', value: invalid.length, icon: AlertTriangle, color: 'from-rose-500 to-red-600' },
         ].map((s) => {
           const Icon = s.icon;
@@ -393,12 +397,52 @@ export default function QueueManage() {
                         {p.windowNo}号窗口 · {formatRelativeTime(p.calledAt || p.takenAt)}
                       </div>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-slate-300" />
+                    <button
+                      onClick={() => {
+                        completeProcessing(p.id);
+                        addHistory(p.numberCode, '办理完成');
+                      }}
+                      className="btn-success py-1.5 px-3 text-xs"
+                    >
+                      <CircleCheckBig className="w-3.5 h-3.5" />
+                      办理完成
+                    </button>
                   </div>
                 ))
               )}
             </div>
           </div>
+
+          {completed.length > 0 && (
+            <div className="card">
+              <div className="card-header">
+                <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                  <CircleCheckBig className="w-4 h-4 text-teal-500" />
+                  已办结
+                  <span className="badge bg-teal-50 text-teal-700">{completed.length}</span>
+                </h3>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {completed.map((p) => (
+                  <div key={p.id} className="p-4 flex items-center gap-3 opacity-75">
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center shadow-md">
+                      <span className="font-mono font-black text-white">{p.numberCode}</span>
+                    </div>
+                    <div className="flex-1">
+                      <div className="font-medium text-slate-800">{p.userName}</div>
+                      <div className="text-xs text-slate-500">
+                        {p.windowNo}号窗口 · 完成于 {p.completedAt && formatTime(p.completedAt)}
+                      </div>
+                    </div>
+                    <span className="badge bg-teal-50 text-teal-700">
+                      <CircleCheckBig className="w-3 h-3 mr-1" />
+                      已办结
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* 操作记录时间线 */}
           <div className="card">

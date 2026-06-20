@@ -6,6 +6,8 @@ import type {
   ReminderLog,
   QueueNumber,
   OvertimeRecord,
+  AuditLog,
+  AuditAction,
   RequestStatus,
   NodeStatus,
   SecrecyLevel,
@@ -18,6 +20,7 @@ import {
   mockQueueNumbers,
   mockOvertimeRecords,
   mockNextSequence,
+  mockAuditLogs,
   mockUsers,
 } from '@/data/mockData';
 import {
@@ -35,9 +38,9 @@ interface AppState {
   reminderLogs: ReminderLog[];
   queueNumbers: QueueNumber[];
   overtimeRecords: OvertimeRecord[];
+  auditLogs: AuditLog[];
   nextSequence: number;
 
-  // Actions - 调卷审批
   createRequest: (data: {
     title: string;
     archiveNo: string;
@@ -51,23 +54,44 @@ interface AppState {
   approveNode: (requestId: string, nodeOrder: number, opinion: string) => void;
   rejectNode: (requestId: string, nodeOrder: number, opinion: string) => void;
 
-  // Actions - 催办
   acknowledgeReminder: (reminderId: string) => void;
   triggerEscalation: (nodeId: string) => void;
+  checkAndAutoRemind: () => void;
 
-  // Actions - 队列
   takeNumber: (requestId: string, userId: string, userName: string) => { success: boolean; numberCode?: string; message: string };
   callNextNumber: (windowNo: number) => QueueNumber | null;
   recallNumber: (queueId: string) => void;
   confirmProcessing: (queueId: string) => void;
+  completeProcessing: (queueId: string) => void;
   markOvertime: (queueId: string) => { status: 'requeued' | 'invalid'; count: number };
   requeueNumber: (queueId: string, handledBy: string) => QueueNumber;
 
-  // Actions - 设置用户
   setCurrentUser: (userId: string) => void;
-
-  // Actions - 重置数据
   resetData: () => void;
+}
+
+function addLog(
+  state: { auditLogs: AuditLog[] },
+  requestId: string,
+  action: AuditAction,
+  operatorId: string,
+  operatorName: string,
+  detail: string,
+  nodeOrder?: number,
+  nodeName?: string
+): AuditLog[] {
+  const log: AuditLog = {
+    id: generateId('a'),
+    requestId,
+    action,
+    operatorId,
+    operatorName,
+    timestamp: Date.now(),
+    detail,
+    nodeOrder,
+    nodeName,
+  };
+  return [...state.auditLogs, log];
 }
 
 export const useAppStore = create<AppState>()(
@@ -79,6 +103,7 @@ export const useAppStore = create<AppState>()(
       reminderLogs: mockReminderLogs,
       queueNumbers: mockQueueNumbers,
       overtimeRecords: mockOvertimeRecords,
+      auditLogs: mockAuditLogs,
       nextSequence: mockNextSequence,
 
       createRequest: (data) => {
@@ -89,6 +114,30 @@ export const useAppStore = create<AppState>()(
 
         const clearance = checkClearance(user.clearanceLevel, data.secrecyLevel);
         if (!clearance.pass) {
+          const now = Date.now();
+          const requestId = generateId('r');
+          const failedRequest: ArchiveRequest = {
+            id: requestId,
+            title: data.title,
+            archiveNo: data.archiveNo,
+            archiveName: data.archiveName,
+            secrecyLevel: data.secrecyLevel,
+            reason: data.reason,
+            borrowPeriod: data.borrowPeriod,
+            userId: data.userId,
+            userName: user.name,
+            userDepartment: user.department,
+            userClearance: user.clearanceLevel,
+            status: 'rejected',
+            currentNode: 0,
+            createdAt: now,
+            rejectionReason: clearance.reason,
+          };
+          set((state) => ({
+            archiveRequests: [...state.archiveRequests, failedRequest],
+            auditLogs: addLog(state, requestId, 'create_request', user.id, user.name, `${user.name}（${user.department}）发起调卷申请：${data.title}`)
+              .concat(addLog({ auditLogs: [] }, requestId, 'check_clearance_fail', user.id, '系统', clearance.reason || '权限不足')[0] ? [{ ...addLog({ auditLogs: [] }, requestId, 'check_clearance_fail', user.id, '系统', clearance.reason || '权限不足')[0] }] : []),
+          }));
           return { success: false, message: clearance.reason || '权限不足' };
         }
 
@@ -121,15 +170,22 @@ export const useAppStore = create<AppState>()(
           approverId: config.approverId,
           approverName: config.approverName,
           approverTitle: config.approverTitle,
-          status: idx === 0 ? 'pending' : 'pending',
-          deadline: now + config.timeoutMinutes * 60 * 1000,
+          status: idx === 0 ? 'active' as NodeStatus : 'pending' as NodeStatus,
+          startedAt: idx === 0 ? now : undefined,
+          deadline: idx === 0 ? now + config.timeoutMinutes * 60 * 1000 : undefined,
           timeoutMinutes: config.timeoutMinutes,
         }));
 
-        set((state) => ({
-          archiveRequests: [...state.archiveRequests, newRequest],
-          approvalNodes: [...state.approvalNodes, ...newNodes],
-        }));
+        set((state) => {
+          let logs = addLog(state, requestId, 'create_request', user.id, user.name, `${user.name}（${user.department}）发起调卷申请：${data.title}`);
+          logs = addLog({ auditLogs: logs }, requestId, 'check_clearance_pass', user.id, '系统', `用户权限等级（${user.clearanceLevel}）≥ 档案密级（${data.secrecyLevel}），核验通过`);
+          logs = addLog({ auditLogs: logs }, requestId, 'node_start', newNodes[0].approverId, '系统', `节点1"${newNodes[0].nodeName}"开始计时，超时时限${newNodes[0].timeoutMinutes}分钟`, 1, newNodes[0].nodeName);
+          return {
+            archiveRequests: [...state.archiveRequests, newRequest],
+            approvalNodes: [...state.approvalNodes, ...newNodes],
+            auditLogs: logs,
+          };
+        });
 
         return { success: true, message: '调卷申请已提交，进入审批流程', requestId };
       },
@@ -140,71 +196,96 @@ export const useAppStore = create<AppState>()(
         const request = state.archiveRequests.find((r) => r.id === requestId);
         if (!request) return;
 
+        const node = state.approvalNodes.find((n) => n.requestId === requestId && n.nodeOrder === nodeOrder);
+        if (!node) return;
+
         const totalNodes = state.approvalNodes.filter((n) => n.requestId === requestId).length;
         const isLastNode = nodeOrder >= totalNodes;
 
-        set((state) => ({
-          approvalNodes: state.approvalNodes.map((n) => {
+        set((state) => {
+          let logs = addLog(state, requestId, 'node_approve', node.approverId, node.approverName, `${node.approverName}（${node.approverTitle}）通过节点${nodeOrder}"${node.nodeName}"${opinion ? `，意见：${opinion}` : ''}`, nodeOrder, node.nodeName);
+
+          const updatedNodes = state.approvalNodes.map((n) => {
             if (n.requestId === requestId && n.nodeOrder === nodeOrder) {
               return { ...n, status: 'approved' as NodeStatus, handledAt: now, opinion };
             }
-            return n;
-          }),
-          archiveRequests: state.archiveRequests.map((r) => {
-            if (r.id !== requestId) return r;
-            if (isLastNode) {
-              return { ...r, status: 'approved' as RequestStatus, currentNode: nodeOrder, approvedAt: now };
+            if (!isLastNode && n.requestId === requestId && n.nodeOrder === nodeOrder + 1) {
+              return { ...n, status: 'active' as NodeStatus, startedAt: now, deadline: now + n.timeoutMinutes * 60 * 1000 };
             }
-            return { ...r, currentNode: nodeOrder + 1 };
-          }),
-        }));
+            return n;
+          });
 
-        if (!isLastNode) {
-          const nextNode = get().approvalNodes.find(
-            (n) => n.requestId === requestId && n.nodeOrder === nodeOrder + 1
-          );
-          if (nextNode) {
-            set((state) => ({
-              approvalNodes: state.approvalNodes.map((n) => {
-                if (n.id === nextNode.id) {
-                  return { ...n, deadline: now + n.timeoutMinutes * 60 * 1000 };
-                }
-                return n;
-              }),
-            }));
+          if (!isLastNode) {
+            const nextNode = state.approvalNodes.find((n) => n.requestId === requestId && n.nodeOrder === nodeOrder + 1);
+            if (nextNode) {
+              logs = addLog({ auditLogs: logs }, requestId, 'node_start', nextNode.approverId, '系统', `节点${nodeOrder + 1}"${nextNode.nodeName}"开始计时，超时时限${nextNode.timeoutMinutes}分钟`, nodeOrder + 1, nextNode.nodeName);
+            }
           }
-        }
+
+          return {
+            approvalNodes: updatedNodes,
+            archiveRequests: state.archiveRequests.map((r) => {
+              if (r.id !== requestId) return r;
+              if (isLastNode) {
+                return { ...r, status: 'approved' as RequestStatus, currentNode: nodeOrder, approvedAt: now };
+              }
+              return { ...r, currentNode: nodeOrder + 1 };
+            }),
+            auditLogs: logs,
+          };
+        });
       },
 
       rejectNode: (requestId, nodeOrder, opinion) => {
         const now = Date.now();
-        set((state) => ({
-          approvalNodes: state.approvalNodes.map((n) => {
-            if (n.requestId === requestId && n.nodeOrder === nodeOrder) {
-              return { ...n, status: 'rejected' as NodeStatus, handledAt: now, opinion };
-            }
-            return n;
-          }),
-          archiveRequests: state.archiveRequests.map((r) => {
-            if (r.id !== requestId) return r;
-            return { ...r, status: 'rejected' as RequestStatus, rejectionReason: opinion };
-          }),
-        }));
+        const state = get();
+        const node = state.approvalNodes.find((n) => n.requestId === requestId && n.nodeOrder === nodeOrder);
+        if (!node) return;
+
+        set((state) => {
+          const logs = addLog(state, requestId, 'node_reject', node.approverId, node.approverName, `${node.approverName}（${node.approverTitle}）驳回节点${nodeOrder}"${node.nodeName}"，理由：${opinion}`, nodeOrder, node.nodeName);
+          return {
+            approvalNodes: state.approvalNodes.map((n) => {
+              if (n.requestId === requestId && n.nodeOrder === nodeOrder) {
+                return { ...n, status: 'rejected' as NodeStatus, handledAt: now, opinion };
+              }
+              return n;
+            }),
+            archiveRequests: state.archiveRequests.map((r) => {
+              if (r.id !== requestId) return r;
+              return { ...r, status: 'rejected' as RequestStatus, rejectionReason: opinion };
+            }),
+            auditLogs: logs,
+          };
+        });
       },
 
       acknowledgeReminder: (reminderId) => {
         const now = Date.now();
-        set((state) => ({
-          reminderLogs: state.reminderLogs.map((r) =>
-            r.id === reminderId ? { ...r, acknowledged: true, acknowledgedAt: now } : r
-          ),
-        }));
+        const state = get();
+        const reminder = state.reminderLogs.find((r) => r.id === reminderId);
+        if (!reminder) return;
+
+        const node = state.approvalNodes.find((n) => n.id === reminder.nodeId);
+
+        set((state) => {
+          const logs = addLog(state, reminder.requestId, 'reminder_acknowledge', reminder.handlerId, reminder.handlerName, `${reminder.handlerName}签收了Lv.${reminder.escalationLevel}催办${reminder.escalationLevel > 1 ? '升级' : ''}通知`, node?.nodeOrder, node?.nodeName);
+          return {
+            reminderLogs: state.reminderLogs.map((r) =>
+              r.id === reminderId ? { ...r, acknowledged: true, acknowledgedAt: now } : r
+            ),
+            auditLogs: logs,
+          };
+        });
       },
 
       triggerEscalation: (nodeId) => {
         const state = get();
         const node = state.approvalNodes.find((n) => n.id === nodeId);
         if (!node) return;
+
+        const request = state.archiveRequests.find((r) => r.id === node.requestId);
+        if (!request || request.currentNode !== node.nodeOrder) return;
 
         const existingEscalations = state.reminderLogs.filter(
           (r) => r.nodeId === nodeId
@@ -232,12 +313,55 @@ export const useAppStore = create<AppState>()(
           acknowledged: false,
         };
 
-        set((state) => ({
-          reminderLogs: [...state.reminderLogs, newReminder],
-          approvalNodes: state.approvalNodes.map((n) =>
-            n.id === nodeId ? { ...n, status: nextLevel >= 2 ? 'escalated' : 'timeout' } : n
-          ),
-        }));
+        set((state) => {
+          const actionType: AuditAction = nextLevel === 1 ? 'reminder_auto' : 'reminder_escalate';
+          const logs = addLog(state, node.requestId, actionType, handler.handlerId, '系统',
+            nextLevel === 1
+              ? `节点${node.nodeOrder}"${node.nodeName}"已超时，自动生成催办提醒（Lv.${nextLevel}），责任人：${handler.handlerName}（${handler.handlerTitle}）`
+              : `节点${node.nodeOrder}持续超时，催办升级至Lv.${nextLevel}，责任人：${handler.handlerName}（${handler.handlerTitle}）`,
+            node.nodeOrder, node.nodeName
+          );
+          return {
+            reminderLogs: [...state.reminderLogs, newReminder],
+            approvalNodes: state.approvalNodes.map((n) =>
+              n.id === nodeId ? { ...n, status: nextLevel >= 2 ? 'escalated' : 'timeout' } : n
+            ),
+            auditLogs: logs,
+          };
+        });
+      },
+
+      checkAndAutoRemind: () => {
+        const state = get();
+        const now = Date.now();
+
+        state.approvalNodes.forEach((node) => {
+          if (node.status !== 'active' && node.status !== 'timeout' && node.status !== 'escalated') return;
+
+          const request = state.archiveRequests.find((r) => r.id === node.requestId);
+          if (!request || request.currentNode !== node.nodeOrder) return;
+
+          if (!node.deadline || now < node.deadline) return;
+
+          const existingReminders = state.reminderLogs.filter((r) => r.nodeId === node.id);
+          const escalationLevel = existingReminders.length;
+
+          if (escalationLevel === 0) {
+            get().triggerEscalation(node.id);
+          } else {
+            const lastReminder = existingReminders[existingReminders.length - 1];
+            const escalateInterval = escalationLevel === 1 ? 30 * 60 * 1000 : 15 * 60 * 1000;
+            if (lastReminder && !lastReminder.acknowledged && now - lastReminder.triggeredAt >= escalateInterval) {
+              if (escalationLevel < 3) {
+                get().triggerEscalation(node.id);
+              }
+            } else if (lastReminder && lastReminder.acknowledged && now - (lastReminder.acknowledgedAt || lastReminder.triggeredAt) >= escalateInterval) {
+              if (escalationLevel < 3) {
+                get().triggerEscalation(node.id);
+              }
+            }
+          }
+        });
       },
 
       takeNumber: (requestId, userId, userName) => {
@@ -248,7 +372,7 @@ export const useAppStore = create<AppState>()(
         }
 
         const existingQueue = state.queueNumbers.find(
-          (q) => q.requestId === requestId && (q.status === 'waiting' || q.status === 'calling')
+          (q) => q.requestId === requestId && (q.status === 'waiting' || q.status === 'calling' || q.status === 'processing')
         );
         if (existingQueue) {
           return { success: false, message: `已有排队号码 ${existingQueue.numberCode}，请勿重复取号` };
@@ -269,13 +393,17 @@ export const useAppStore = create<AppState>()(
           takenAt: Date.now(),
         };
 
-        set((state) => ({
-          nextSequence: nextSeq + 1,
-          queueNumbers: [...state.queueNumbers, newQueue],
-          archiveRequests: state.archiveRequests.map((r) =>
-            r.id === requestId ? { ...r, status: 'queuing' as RequestStatus } : r
-          ),
-        }));
+        set((state) => {
+          const logs = addLog(state, requestId, 'take_number', userId, userName, `${userName}取号排队，号码 ${numberCode}`);
+          return {
+            nextSequence: nextSeq + 1,
+            queueNumbers: [...state.queueNumbers, newQueue],
+            archiveRequests: state.archiveRequests.map((r) =>
+              r.id === requestId ? { ...r, status: 'queuing' as RequestStatus } : r
+            ),
+            auditLogs: logs,
+          };
+        });
 
         return { success: true, numberCode, message: '取号成功' };
       },
@@ -298,11 +426,15 @@ export const useAppStore = create<AppState>()(
         const next = waiting[0];
         const now = Date.now();
 
-        set((state) => ({
-          queueNumbers: state.queueNumbers.map((q) =>
-            q.id === next.id ? { ...q, status: 'calling' as QueueStatus, calledAt: now, windowNo } : q
-          ),
-        }));
+        set((state) => {
+          const logs = addLog(state, next.requestId, 'call_number', 'u007', '周管理', `叫号 ${next.numberCode}，窗口${windowNo}`);
+          return {
+            queueNumbers: state.queueNumbers.map((q) =>
+              q.id === next.id ? { ...q, status: 'calling' as QueueStatus, calledAt: now, windowNo } : q
+            ),
+            auditLogs: logs,
+          };
+        });
 
         return { ...next, status: 'calling' as QueueStatus, calledAt: now, windowNo };
       },
@@ -318,11 +450,45 @@ export const useAppStore = create<AppState>()(
       },
 
       confirmProcessing: (queueId) => {
-        set((state) => ({
-          queueNumbers: state.queueNumbers.map((q) =>
-            q.id === queueId ? { ...q, status: 'processing' as QueueStatus } : q
-          ),
-        }));
+        const state = get();
+        const queue = state.queueNumbers.find((q) => q.id === queueId);
+        if (!queue) return;
+
+        set((state) => {
+          const logs = addLog(state, queue.requestId, 'confirm_arrival', queue.userId, queue.userName, `${queue.userName}确认到场，号码 ${queue.numberCode} 开始办理`);
+          return {
+            queueNumbers: state.queueNumbers.map((q) =>
+              q.id === queueId ? { ...q, status: 'processing' as QueueStatus } : q
+            ),
+            auditLogs: logs,
+          };
+        });
+      },
+
+      completeProcessing: (queueId) => {
+        const state = get();
+        const queue = state.queueNumbers.find((q) => q.id === queueId);
+        if (!queue) return;
+
+        const now = Date.now();
+
+        set((state) => {
+          let logs = addLog(state, queue.requestId, 'complete_processing', 'u007', '周管理', `号码 ${queue.numberCode} 办理完成`);
+
+          if (queue.requestId) {
+            logs = addLog({ auditLogs: logs }, queue.requestId, 'complete_processing', 'u007', '周管理', `调卷业务办理完成，申请单号 ${queue.requestId}`);
+          }
+
+          return {
+            queueNumbers: state.queueNumbers.map((q) =>
+              q.id === queueId ? { ...q, status: 'completed' as QueueStatus, completedAt: now } : q
+            ),
+            archiveRequests: state.archiveRequests.map((r) =>
+              r.id === queue.requestId ? { ...r, status: 'completed' as RequestStatus } : r
+            ),
+            auditLogs: logs,
+          };
+        });
       },
 
       markOvertime: (queueId) => {
@@ -347,16 +513,20 @@ export const useAppStore = create<AppState>()(
             : `第${newCount}次过号，${isInvalid ? '已作废' : '重新排至队尾'}`,
         };
 
-        set((state) => ({
-          queueNumbers: state.queueNumbers.map((q) =>
-            q.id === queueId
-              ? isInvalid
-                ? { ...q, status: 'invalid' as QueueStatus, overtimeCount: newCount }
-                : { ...q, overtimeCount: newCount }
-              : q
-          ),
-          overtimeRecords: [...state.overtimeRecords, record],
-        }));
+        set((state) => {
+          const logs = addLog(state, queue.requestId, 'mark_overtime', 'u007', '周管理', `号码 ${queue.numberCode} 第${newCount}次过号${isInvalid ? '，已作废' : ''}`);
+          return {
+            queueNumbers: state.queueNumbers.map((q) =>
+              q.id === queueId
+                ? isInvalid
+                  ? { ...q, status: 'invalid' as QueueStatus, overtimeCount: newCount }
+                  : { ...q, overtimeCount: newCount }
+                : q
+            ),
+            overtimeRecords: [...state.overtimeRecords, record],
+            auditLogs: logs,
+          };
+        });
 
         return { status: isInvalid ? 'invalid' : 'requeued', count: newCount };
       },
@@ -369,16 +539,20 @@ export const useAppStore = create<AppState>()(
         const maxSequence = Math.max(...state.queueNumbers.map((q) => q.sequence));
         const newSequence = maxSequence + 1;
 
-        set((state) => ({
-          queueNumbers: state.queueNumbers.map((q) =>
-            q.id === queueId
-              ? { ...q, status: 'waiting' as QueueStatus, sequence: newSequence, calledAt: undefined, windowNo: undefined }
-              : q
-          ),
-          overtimeRecords: state.overtimeRecords.map((o) =>
-            o.queueId === queueId && !o.handledBy ? { ...o, handledBy } : o
-          ),
-        }));
+        set((state) => {
+          const logs = addLog(state, queue.requestId, 'requeue', handledBy, handledBy, `号码 ${queue.numberCode} 重新排至队尾，新序号 ${newSequence}`);
+          return {
+            queueNumbers: state.queueNumbers.map((q) =>
+              q.id === queueId
+                ? { ...q, status: 'waiting' as QueueStatus, sequence: newSequence, calledAt: undefined, windowNo: undefined }
+                : q
+            ),
+            overtimeRecords: state.overtimeRecords.map((o) =>
+              o.queueId === queueId && !o.handledBy ? { ...o, handledBy } : o
+            ),
+            auditLogs: logs,
+          };
+        });
 
         return {
           ...queue,
@@ -396,6 +570,7 @@ export const useAppStore = create<AppState>()(
           reminderLogs: mockReminderLogs,
           queueNumbers: mockQueueNumbers,
           overtimeRecords: mockOvertimeRecords,
+          auditLogs: mockAuditLogs,
           nextSequence: mockNextSequence,
         });
       },

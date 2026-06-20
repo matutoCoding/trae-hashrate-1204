@@ -19,15 +19,42 @@ import {
   Eye,
   ThumbsUp,
   ThumbsDown,
+  Activity,
+  Timer,
+  Bell,
+  BellRing,
+  ArrowUpRight,
+  RotateCcw,
+  Volume2,
+  UserCheck,
+  CheckCircle,
 } from 'lucide-react';
 import { useAppStore } from '@/store';
-import { REQUEST_STATUS_MAP, NODE_STATUS_MAP, SECRECY_LEVEL_MAP, type NodeStatus } from '@/types';
+import { REQUEST_STATUS_MAP, NODE_STATUS_MAP, SECRECY_LEVEL_MAP, AUDIT_ACTION_LABELS, type NodeStatus, type AuditAction } from '@/types';
 import { formatTime, formatRelativeTime, formatCountdown } from '@/utils';
+
+const AUDIT_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  FileText,
+  ShieldCheck: CheckCircle2,
+  ShieldX: XCircle,
+  Timer,
+  CheckCircle: CheckCircle2,
+  CheckCircle2,
+  XCircle,
+  Bell,
+  ArrowUpRight,
+  BellRing,
+  Ticket,
+  Volume2,
+  UserCheck,
+  AlertTriangle,
+  RotateCcw,
+};
 
 export default function ApprovalDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { archiveRequests, approvalNodes, reminderLogs, approveNode, rejectNode, triggerEscalation, takeNumber, currentUserId } = useAppStore();
+  const { archiveRequests, approvalNodes, reminderLogs, auditLogs, approveNode, rejectNode, triggerEscalation, takeNumber, currentUserId } = useAppStore();
   const [, setTick] = useState(0);
   const [showOpinionModal, setShowOpinionModal] = useState<null | 'approve' | 'reject'>(null);
   const [opinion, setOpinion] = useState('');
@@ -43,6 +70,9 @@ export default function ApprovalDetail() {
     .filter((n) => n.requestId === id)
     .sort((a, b) => a.nodeOrder - b.nodeOrder);
   const reminders = reminderLogs.filter((r) => r.requestId === id);
+  const requestAuditLogs = auditLogs
+    .filter((a) => a.requestId === id)
+    .sort((a, b) => a.timestamp - b.timestamp);
 
   if (!req) {
     return (
@@ -61,19 +91,19 @@ export default function ApprovalDetail() {
   const secrecy = SECRECY_LEVEL_MAP[req.secrecyLevel];
   const userSecrecy = SECRECY_LEVEL_MAP[req.userClearance];
 
-  const currentNode = nodes.find((n) => n.nodeOrder === req.currentNode && (n.status === 'pending' || n.status === 'timeout' || n.status === 'escalated'));
-  const isCurrentApprover = currentNode && currentNode.approverId === currentUserId;
+  const activeNode = nodes.find((n) => n.nodeOrder === req.currentNode && (n.status === 'active' || n.status === 'timeout' || n.status === 'escalated'));
+  const isCurrentApprover = activeNode && activeNode.approverId === currentUserId;
 
   const handleApprove = () => {
-    if (!currentNode || !opinion.trim()) return;
-    approveNode(req.id, currentNode.nodeOrder, opinion.trim());
+    if (!activeNode || !opinion.trim()) return;
+    approveNode(req.id, activeNode.nodeOrder, opinion.trim());
     setShowOpinionModal(null);
     setOpinion('');
   };
 
   const handleReject = () => {
-    if (!currentNode || !opinion.trim()) return;
-    rejectNode(req.id, currentNode.nodeOrder, opinion.trim());
+    if (!activeNode || !opinion.trim()) return;
+    rejectNode(req.id, activeNode.nodeOrder, opinion.trim());
     setShowOpinionModal(null);
     setOpinion('');
   };
@@ -87,6 +117,14 @@ export default function ApprovalDetail() {
         navigate('/queue');
       }, 2000);
     }
+  };
+
+  const isNodeActive = (node: typeof nodes[0]) => {
+    return node.nodeOrder === req.currentNode && (node.status === 'active' || node.status === 'timeout' || node.status === 'escalated');
+  };
+
+  const isNodeWaiting = (node: typeof nodes[0]) => {
+    return node.nodeOrder > req.currentNode && node.status === 'pending';
   };
 
   return (
@@ -144,9 +182,7 @@ export default function ApprovalDetail() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* 左侧：档案和申请人信息 */}
         <div className="lg:col-span-1 space-y-5">
-          {/* 档案信息 */}
           <div className="card overflow-hidden">
             <div className="bg-gradient-to-br from-brand-500 to-brand-700 p-5 text-white">
               <div className="flex items-center gap-2 text-sm opacity-90">
@@ -175,7 +211,6 @@ export default function ApprovalDetail() {
             </div>
           </div>
 
-          {/* 申请人信息 */}
           <div className="card">
             <div className="card-header">
               <h3 className="font-semibold text-slate-900 flex items-center gap-2">
@@ -222,7 +257,6 @@ export default function ApprovalDetail() {
             </div>
           </div>
 
-          {/* 催办记录 */}
           {reminders.length > 0 && (
             <div className="card border-amber-200">
               <div className="card-header border-amber-100">
@@ -264,9 +298,8 @@ export default function ApprovalDetail() {
           )}
         </div>
 
-        {/* 右侧：审批流程时间线 */}
-        <div className="lg:col-span-2">
-          <div className="card h-full">
+        <div className="lg:col-span-2 space-y-6">
+          <div className="card">
             <div className="card-header">
               <h3 className="font-semibold text-slate-900 flex items-center gap-2">
                 <Clock className="w-4 h-4 text-brand-500" />
@@ -276,22 +309,21 @@ export default function ApprovalDetail() {
             </div>
 
             <div className="p-6">
-              {/* 时间线 */}
               <div className="relative">
                 {nodes.map((node, idx) => {
-                  const cd = formatCountdown(node.deadline);
-                  const isCurrent = currentNode?.id === node.id;
+                  const isActive = isNodeActive(node);
+                  const isWaiting = isNodeWaiting(node);
+                  const cd = node.deadline ? formatCountdown(node.deadline) : null;
+
                   return (
                     <div key={node.id} className="relative pb-8 last:pb-0">
-                      {/* 连接线 */}
                       {idx < nodes.length - 1 && (
                         <div className={`absolute left-[19px] top-12 bottom-0 w-0.5 ${
                           node.status === 'approved' ? 'bg-emerald-300' : 'bg-slate-200'
                         }`} />
                       )}
 
-                      <div className={`relative flex gap-5 ${isCurrent ? 'animate-pulse-slow' : ''}`}>
-                        {/* 节点圆点 */}
+                      <div className={`relative flex gap-5 ${isActive ? 'animate-pulse-slow' : ''}`}>
                         <div className="relative z-10 flex-shrink-0">
                           <div className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg border-4 border-white ${
                             node.status === 'approved'
@@ -300,8 +332,10 @@ export default function ApprovalDetail() {
                               ? 'bg-red-500'
                               : node.status === 'timeout' || node.status === 'escalated'
                               ? 'bg-orange-500 animate-blink'
-                              : isCurrent
+                              : isActive
                               ? 'bg-brand-500 ring-4 ring-brand-100'
+                              : isWaiting
+                              ? 'bg-slate-200'
                               : 'bg-slate-300'
                           }`}>
                             {node.status === 'approved' ? (
@@ -310,22 +344,23 @@ export default function ApprovalDetail() {
                               <XCircle className="w-5 h-5 text-white" />
                             ) : node.status === 'timeout' || node.status === 'escalated' ? (
                               <Hourglass className="w-5 h-5 text-white" />
-                            ) : isCurrent ? (
+                            ) : isActive ? (
                               <Eye className="w-5 h-5 text-white" />
                             ) : (
-                              <span className="text-white text-sm font-bold">{node.nodeOrder}</span>
+                              <span className="text-slate-400 text-sm font-bold">{node.nodeOrder}</span>
                             )}
                           </div>
                         </div>
 
-                        {/* 节点内容 */}
                         <div className={`flex-1 rounded-xl border p-5 transition-all ${
-                          isCurrent
+                          isActive
                             ? 'border-brand-200 bg-brand-50/50 shadow-md'
                             : node.status === 'rejected'
                             ? 'border-red-200 bg-red-50/50'
                             : node.status === 'timeout' || node.status === 'escalated'
                             ? 'border-orange-200 bg-orange-50/50'
+                            : isWaiting
+                            ? 'border-slate-100 bg-slate-50/50'
                             : 'border-slate-200 bg-white'
                         }`}>
                           <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -334,20 +369,29 @@ export default function ApprovalDetail() {
                                 <h4 className="font-semibold text-slate-900">
                                   节点 {node.nodeOrder}：{node.nodeName}
                                 </h4>
-                                <span className={`badge ${
-                                  node.status === 'approved'
-                                    ? 'bg-emerald-50 text-emerald-700'
-                                    : node.status === 'rejected'
-                                    ? 'bg-red-50 text-red-700'
-                                    : node.status === 'escalated'
-                                    ? 'bg-red-50 text-red-700'
-                                    : node.status === 'timeout'
-                                    ? 'bg-orange-50 text-orange-700'
-                                    : 'bg-slate-100 text-slate-600'
-                                }`}>
-                                  <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${NODE_STATUS_MAP[node.status].dotColor} ${isCurrent ? 'animate-pulse' : ''}`} />
-                                  {NODE_STATUS_MAP[node.status].label}
-                                </span>
+                                {isWaiting ? (
+                                  <span className="badge bg-slate-100 text-slate-500">
+                                    <span className="w-1.5 h-1.5 rounded-full mr-1.5 bg-slate-300" />
+                                    等待前一节点完成
+                                  </span>
+                                ) : (
+                                  <span className={`badge ${
+                                    node.status === 'approved'
+                                      ? 'bg-emerald-50 text-emerald-700'
+                                      : node.status === 'rejected'
+                                      ? 'bg-red-50 text-red-700'
+                                      : node.status === 'escalated'
+                                      ? 'bg-red-50 text-red-700'
+                                      : node.status === 'timeout'
+                                      ? 'bg-orange-50 text-orange-700'
+                                      : node.status === 'active'
+                                      ? 'bg-blue-50 text-blue-700'
+                                      : 'bg-slate-100 text-slate-600'
+                                  }`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${NODE_STATUS_MAP[node.status].dotColor} ${isActive ? 'animate-pulse' : ''}`} />
+                                    {node.status === 'active' ? '处理中' : NODE_STATUS_MAP[node.status].label}
+                                  </span>
+                                )}
                               </div>
                               <div className="text-sm text-slate-500 mt-1 flex items-center gap-2">
                                 <User className="w-3.5 h-3.5" />
@@ -357,9 +401,13 @@ export default function ApprovalDetail() {
                               </div>
                             </div>
 
-                            {/* 时间/倒计时 */}
                             <div className="text-right">
-                              {node.status === 'pending' || isCurrent ? (
+                              {isWaiting ? (
+                                <div className="text-sm text-slate-400">
+                                  <Clock className="w-4 h-4 inline mr-1" />
+                                  尚未开始计时
+                                </div>
+                              ) : isActive && cd ? (
                                 <div>
                                   <div className={`font-mono text-lg font-bold ${
                                     cd.isOverdue
@@ -369,9 +417,6 @@ export default function ApprovalDetail() {
                                       : 'text-brand-600'
                                   }`}>
                                     {cd.isOverdue ? '已超时' : cd.text}
-                                  </div>
-                                  <div className="text-[11px] text-slate-400 mt-0.5">
-                                    截止：{formatTime(node.deadline)}
                                   </div>
                                   {(cd.isOverdue || cd.isWarning) && isCurrentApprover && (
                                     <button
@@ -396,7 +441,29 @@ export default function ApprovalDetail() {
                             </div>
                           </div>
 
-                          {/* 审批意见 */}
+                          <div className="mt-3 pt-3 border-t border-slate-100/80">
+                            <div className="grid grid-cols-3 gap-3 text-xs">
+                              <div>
+                                <span className="text-slate-400">开始时间</span>
+                                <div className="font-medium text-slate-700 mt-0.5">
+                                  {node.startedAt ? formatTime(node.startedAt) : '-'}
+                                </div>
+                              </div>
+                              <div>
+                                <span className="text-slate-400">截止时间</span>
+                                <div className="font-medium text-slate-700 mt-0.5">
+                                  {node.deadline ? formatTime(node.deadline) : '-'}
+                                </div>
+                              </div>
+                              <div>
+                                <span className="text-slate-400">处理时间</span>
+                                <div className="font-medium text-slate-700 mt-0.5">
+                                  {node.handledAt ? formatTime(node.handledAt) : '-'}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
                           {node.opinion && (
                             <div className="mt-4 p-3.5 rounded-lg bg-white/80 border border-slate-100">
                               <div className="flex items-start gap-2">
@@ -411,8 +478,7 @@ export default function ApprovalDetail() {
                             </div>
                           )}
 
-                          {/* 进度条（当前节点） */}
-                          {isCurrent && (node.status === 'pending' || node.status === 'timeout') && (
+                          {isActive && cd && (node.status === 'active' || node.status === 'timeout') && (
                             <div className="mt-4">
                               <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
                                 <div
@@ -426,7 +492,7 @@ export default function ApprovalDetail() {
                                   style={{
                                     width: cd.isOverdue
                                       ? '100%'
-                                      : `${Math.max(5, 100 - ((node.deadline - Date.now()) / (node.timeoutMinutes * 60 * 1000)) * 100)}%`,
+                                      : `${Math.max(5, 100 - ((node.deadline! - Date.now()) / (node.timeoutMinutes * 60 * 1000)) * 100)}%`,
                                   }}
                                 />
                               </div>
@@ -438,7 +504,6 @@ export default function ApprovalDetail() {
                   );
                 })}
 
-                {/* 最终状态 */}
                 <div className="relative flex gap-5">
                   <div className="relative z-10 flex-shrink-0">
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg border-4 border-white ${
@@ -501,10 +566,77 @@ export default function ApprovalDetail() {
               </div>
             </div>
           </div>
+
+          <div className="card">
+            <div className="card-header">
+              <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                <Activity className="w-4 h-4 text-brand-500" />
+                完整轨迹日志
+              </h3>
+              <span className="text-xs text-slate-400">共 {requestAuditLogs.length} 条记录</span>
+            </div>
+            <div className="p-6 max-h-[500px] overflow-y-auto">
+              {requestAuditLogs.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-sm">
+                  <Activity className="w-10 h-10 mx-auto mb-3 opacity-50" />
+                  暂无轨迹记录
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {requestAuditLogs.map((log, idx) => {
+                    const actionConfig = AUDIT_ACTION_LABELS[log.action];
+                    const isLast = idx === requestAuditLogs.length - 1;
+                    const IconComp = AUDIT_ICONS[actionConfig.icon] || Activity;
+
+                    return (
+                      <div key={log.id} className="relative pl-8 pb-4">
+                        {!isLast && (
+                          <div className="absolute left-[11px] top-6 bottom-0 w-0.5 bg-slate-200" />
+                        )}
+                        <div className={`absolute left-0 top-1 w-6 h-6 rounded-full flex items-center justify-center shadow-md ${
+                          log.action === 'node_reject' || log.action === 'check_clearance_fail'
+                            ? 'bg-red-100'
+                            : log.action.includes('reminder') || log.action === 'mark_overtime'
+                            ? 'bg-amber-100'
+                            : log.action === 'complete_processing'
+                            ? 'bg-emerald-100'
+                            : 'bg-brand-50'
+                        }`}>
+                          <IconComp className={`w-3.5 h-3.5 ${actionConfig.color}`} />
+                        </div>
+                        <div className="rounded-lg border border-slate-100 p-3 hover:bg-slate-50/50 transition-colors">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <span className={`text-xs font-semibold ${actionConfig.color}`}>
+                                {actionConfig.label}
+                              </span>
+                              {log.nodeName && (
+                                <span className="ml-2 text-[10px] text-slate-400">
+                                  节点{log.nodeOrder} · {log.nodeName}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-slate-400 whitespace-nowrap">
+                              {formatTime(log.timestamp)}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600 leading-relaxed mt-1">
+                            {log.detail}
+                          </p>
+                          <div className="text-[10px] text-slate-400 mt-1.5">
+                            操作人：<span className="text-slate-500">{log.operatorName}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* 审批意见弹窗 */}
       {showOpinionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -519,7 +651,7 @@ export default function ApprovalDetail() {
               <p className={`text-sm mt-1 ${
                 showOpinionModal === 'approve' ? 'text-emerald-700' : 'text-red-700'
               }`}>
-                节点：{currentNode?.nodeName} · 审批人：{currentNode?.approverName}
+                节点：{activeNode?.nodeName} · 审批人：{activeNode?.approverName}
               </p>
             </div>
             <div className="p-6">

@@ -36,14 +36,14 @@ export default function Dashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  const pendingApprovals = approvalNodes.filter((n) => n.status === 'pending' || n.status === 'timeout' || n.status === 'escalated').length;
+  const pendingApprovals = approvalNodes.filter((n) => n.status === 'active' || n.status === 'timeout' || n.status === 'escalated').length;
   const waitingQueue = queueNumbers.filter((q) => q.status === 'waiting').length;
   const timeoutWarnings = reminderLogs.filter((r) => !r.acknowledged).length;
   const todayOvertime = overtimeRecords.length;
 
   const myPendingNodes = approvalNodes
-    .filter((n) => n.status === 'pending' || n.status === 'timeout' || n.status === 'escalated')
-    .sort((a, b) => a.deadline - b.deadline)
+    .filter((n) => n.status === 'active' || n.status === 'timeout' || n.status === 'escalated')
+    .sort((a, b) => (a.deadline || 0) - (b.deadline || 0))
     .slice(0, 5);
 
   const recentRequests = [...archiveRequests]
@@ -178,7 +178,7 @@ export default function Dashboard() {
               ) : (
                 myPendingNodes.map((node) => {
                   const req = archiveRequests.find((r) => r.id === node.requestId);
-                  const cd = formatCountdown(node.deadline);
+                  const cd = node.deadline ? formatCountdown(node.deadline) : null;
                   return (
                     <div
                       key={node.id}
@@ -189,7 +189,7 @@ export default function Dashboard() {
                         <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
                           node.status === 'timeout' || node.status === 'escalated'
                             ? 'bg-red-50'
-                            : cd.isWarning
+                            : cd?.isWarning
                             ? 'bg-amber-50'
                             : 'bg-blue-50'
                         }`}>
@@ -213,17 +213,23 @@ export default function Dashboard() {
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className={`font-mono text-sm font-semibold ${
-                            cd.isOverdue ? 'text-red-600 animate-blink' : cd.isWarning ? 'text-amber-600' : 'text-slate-700'
-                          }`}>
-                            {cd.isOverdue ? '已超时' : cd.text}
-                          </div>
-                          <div className="text-[10px] text-slate-400 mt-0.5">
-                            截止 {formatTime(node.deadline)}
-                          </div>
+                          {cd ? (
+                            <>
+                              <div className={`font-mono text-sm font-semibold ${
+                                cd.isOverdue ? 'text-red-600 animate-blink' : cd.isWarning ? 'text-amber-600' : 'text-slate-700'
+                              }`}>
+                                {cd.isOverdue ? '已超时' : cd.text}
+                              </div>
+                              <div className="text-[10px] text-slate-400 mt-0.5">
+                                截止 {formatTime(node.deadline!)}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="text-sm text-slate-400">尚未开始</div>
+                          )}
                         </div>
                         <div className={`badge ${NODE_STATUS_MAP[node.status].dotColor.replace('bg-', 'bg-').replace('-500', '-100')} ${NODE_STATUS_MAP[node.status].color.replace('text-', 'text-')} border-0`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${NODE_STATUS_MAP[node.status].dotColor} mr-1.5 ${node.status === 'pending' ? 'animate-pulse' : ''}`} />
+                          <span className={`w-1.5 h-1.5 rounded-full ${NODE_STATUS_MAP[node.status].dotColor} mr-1.5 ${node.status === 'active' ? 'animate-pulse' : ''}`} />
                           {NODE_STATUS_MAP[node.status].label}
                         </div>
                       </div>
@@ -386,6 +392,7 @@ export default function Dashboard() {
                 { label: '等待中', count: queueNumbers.filter((q) => q.status === 'waiting').length, color: 'bg-blue-500', text: 'text-blue-700', bg: 'bg-blue-50' },
                 { label: '叫号中', count: queueNumbers.filter((q) => q.status === 'calling').length, color: 'bg-amber-500', text: 'text-amber-700', bg: 'bg-amber-50' },
                 { label: '办理中', count: queueNumbers.filter((q) => q.status === 'processing').length, color: 'bg-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50' },
+                { label: '已办结', count: queueNumbers.filter((q) => q.status === 'completed').length, color: 'bg-teal-500', text: 'text-teal-700', bg: 'bg-teal-50' },
                 { label: '已作废', count: queueNumbers.filter((q) => q.status === 'invalid').length, color: 'bg-red-500', text: 'text-red-700', bg: 'bg-red-50' },
               ].map((s) => (
                 <div key={s.label} className="flex items-center gap-3">

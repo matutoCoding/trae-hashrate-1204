@@ -14,6 +14,7 @@ import {
   Bell,
   Search,
   Zap,
+  Activity,
 } from 'lucide-react';
 import { useAppStore } from '@/store';
 import { NODE_STATUS_MAP } from '@/types';
@@ -22,7 +23,7 @@ import { useNavigate } from 'react-router-dom';
 
 export default function ReminderCenter() {
   const navigate = useNavigate();
-  const { approvalNodes, archiveRequests, reminderLogs, acknowledgeReminder, triggerEscalation, currentUserId } = useAppStore();
+  const { approvalNodes, archiveRequests, reminderLogs, acknowledgeReminder, currentUserId } = useAppStore();
   const [, setTick] = useState(0);
   const [filter, setFilter] = useState<'all' | 'mine' | 'warning' | 'escalated'>('all');
   const [search, setSearch] = useState('');
@@ -32,12 +33,16 @@ export default function ReminderCenter() {
     return () => clearInterval(timer);
   }, []);
 
-  // 获取所有活跃节点
-  const activeNodes = approvalNodes.filter((n) => n.status === 'pending' || n.status === 'timeout' || n.status === 'escalated');
+  const activeNodes = approvalNodes.filter((n) => {
+    if (n.status !== 'active' && n.status !== 'timeout' && n.status !== 'escalated') return false;
+    const req = archiveRequests.find((r) => r.id === n.requestId);
+    if (!req || req.currentNode !== n.nodeOrder) return false;
+    return true;
+  });
 
   const filteredNodes = activeNodes.filter((n) => {
     const req = archiveRequests.find((r) => r.id === n.requestId);
-    const cd = formatCountdown(n.deadline);
+    const cd = n.deadline ? formatCountdown(n.deadline) : { isOverdue: false, isWarning: false };
     if (filter === 'mine' && n.approverId !== currentUserId) return false;
     if (filter === 'warning' && !cd.isOverdue && !cd.isWarning) return false;
     if (filter === 'escalated' && n.status !== 'escalated') return false;
@@ -51,12 +56,12 @@ export default function ReminderCenter() {
         return false;
     }
     return true;
-  }).sort((a, b) => a.deadline - b.deadline);
+  }).sort((a, b) => (a.deadline || 0) - (b.deadline || 0));
 
-  // 统计
   const totalActive = activeNodes.length;
-  const overdueCount = activeNodes.filter((n) => formatCountdown(n.deadline).isOverdue).length;
+  const overdueCount = activeNodes.filter((n) => n.deadline && formatCountdown(n.deadline).isOverdue).length;
   const warningCount = activeNodes.filter((n) => {
+    if (!n.deadline) return false;
     const cd = formatCountdown(n.deadline);
     return !cd.isOverdue && cd.isWarning;
   }).length;
@@ -66,7 +71,7 @@ export default function ReminderCenter() {
   const sortedReminders = [...reminderLogs].sort((a, b) => b.triggeredAt - a.triggeredAt);
 
   const filters = [
-    { key: 'all' as const, label: '全部节点', count: totalActive },
+    { key: 'all' as const, label: '当前活跃节点', count: totalActive },
     { key: 'mine' as const, label: '我负责的', count: activeNodes.filter((n) => n.approverId === currentUserId).length },
     { key: 'warning' as const, label: '超时预警', count: overdueCount + warningCount },
     { key: 'escalated' as const, label: '已升级', count: escalatedCount },
@@ -79,13 +84,12 @@ export default function ReminderCenter() {
           <Clock className="w-7 h-7 text-brand-500" />
           超时催办中心
         </h1>
-        <p className="text-sm text-slate-500 mt-1">实时监控审批节点超时情况，自动升级催办并记录责任人</p>
+        <p className="text-sm text-slate-500 mt-1">实时监控当前活跃审批节点超时情况，自动升级催办并记录责任人</p>
       </div>
 
-      {/* 统计卡片 */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
         {[
-          { label: '活跃审批节点', value: totalActive, icon: Hourglass, color: 'from-blue-500 to-blue-700', desc: '正在处理中' },
+          { label: '当前活跃节点', value: totalActive, icon: Hourglass, color: 'from-blue-500 to-blue-700', desc: '轮到处理的节点' },
           { label: '即将超时预警', value: warningCount, icon: Bell, color: 'from-amber-500 to-amber-600', desc: '剩余<10分钟' },
           { label: '已超时节点', value: overdueCount, icon: AlertTriangle, color: 'from-orange-500 to-red-600', desc: '需立即处理', danger: true },
           { label: '升级催办中', value: escalatedCount, icon: ArrowUpRight, color: 'from-rose-500 to-red-700', desc: '已转交上级', danger: true },
@@ -118,10 +122,17 @@ export default function ReminderCenter() {
         })}
       </div>
 
+      <div className="card border-blue-100 bg-blue-50/30">
+        <div className="p-4 flex items-center gap-3">
+          <Activity className="w-5 h-5 text-blue-500 flex-shrink-0" />
+          <div className="text-sm text-blue-800">
+            <span className="font-semibold">自动催办机制已启用</span> — 系统每5秒自动检测超时节点，到期后自动生成催办记录并逐级升级，无需手动操作
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* 左侧：节点监控列表 */}
         <div className="xl:col-span-2 space-y-5">
-          {/* 筛选栏 */}
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div className="card p-1.5 inline-flex gap-1 flex-wrap">
               {filters.map((f) => (
@@ -155,7 +166,6 @@ export default function ReminderCenter() {
             </div>
           </div>
 
-          {/* 节点列表 */}
           <div className="space-y-4">
             {filteredNodes.length === 0 ? (
               <div className="card p-16 text-center">
@@ -165,11 +175,11 @@ export default function ReminderCenter() {
             ) : (
               filteredNodes.map((node) => {
                 const req = archiveRequests.find((r) => r.id === node.requestId);
-                const cd = formatCountdown(node.deadline);
+                const cd = node.deadline ? formatCountdown(node.deadline) : { isOverdue: false, isWarning: false, text: '--:--:--' };
                 const isAssignedToMe = node.approverId === currentUserId;
                 const overduePercent = cd.isOverdue
                   ? 100
-                  : Math.min(100, 100 - ((node.deadline - Date.now()) / (node.timeoutMinutes * 60 * 1000)) * 100);
+                  : node.deadline ? Math.min(100, 100 - ((node.deadline - Date.now()) / (node.timeoutMinutes * 60 * 1000)) * 100) : 0;
                 const nodeReminders = reminderLogs.filter((r) => r.nodeId === node.id);
 
                 return (
@@ -180,7 +190,6 @@ export default function ReminderCenter() {
                     }`}
                     onClick={() => navigate(`/approval/${node.requestId}`)}
                   >
-                    {/* 进度条背景 */}
                     <div className="h-1.5 bg-slate-100 overflow-hidden">
                       <div
                         className={`h-full transition-all duration-1000 ${
@@ -228,7 +237,8 @@ export default function ReminderCenter() {
                           <div className="mt-2 flex items-center gap-3 flex-wrap text-xs text-slate-500">
                             <span className="flex items-center gap-1">
                               <Filter className="w-3.5 h-3.5" />
-                              节点：<span className="font-medium text-slate-700">{node.nodeName}</span>
+                              {node.nodeName}
+                              <span className="text-slate-400">（第{node.nodeOrder}节点）</span>
                             </span>
                             <span className="flex items-center gap-1">
                               <User className="w-3.5 h-3.5" />
@@ -243,7 +253,6 @@ export default function ReminderCenter() {
                           </div>
                         </div>
 
-                        {/* 倒计时 */}
                         <div className="text-right">
                           <div className={`text-xs font-medium mb-1 ${
                             cd.isOverdue ? 'text-red-600' : cd.isWarning ? 'text-amber-600' : 'text-slate-500'
@@ -260,24 +269,11 @@ export default function ReminderCenter() {
                             {cd.text}
                           </div>
                           <div className="text-[11px] text-slate-400 mt-0.5">
-                            截止 {formatTime(node.deadline)}
+                            截止 {node.deadline ? formatTime(node.deadline) : '尚未开始'}
                           </div>
-                          {isAssignedToMe && (cd.isOverdue || cd.isWarning) && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                triggerEscalation(node.id);
-                              }}
-                              className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-2.5 py-1 rounded-lg transition-colors"
-                            >
-                              <ArrowUpRight className="w-3 h-3" />
-                              升级催办
-                            </button>
-                          )}
                         </div>
                       </div>
 
-                      {/* 催办历史标签 */}
                       {nodeReminders.length > 0 && (
                         <div className="mt-4 flex items-center gap-2 flex-wrap pt-3 border-t border-dashed border-slate-200">
                           <span className="text-xs text-slate-400">催办轨迹：</span>
@@ -311,7 +307,6 @@ export default function ReminderCenter() {
           </div>
         </div>
 
-        {/* 右侧：催办记录时间线 */}
         <div className="space-y-5">
           <div className="card">
             <div className="card-header">
@@ -393,6 +388,9 @@ export default function ReminderCenter() {
                           </div>
                           <div className="text-[10px] text-slate-400 mt-1">
                             触发时间：{formatTime(r.triggeredAt)}
+                            {r.acknowledged && r.acknowledgedAt && (
+                              <span> · 签收时间：{formatTime(r.acknowledgedAt)}</span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -403,7 +401,6 @@ export default function ReminderCenter() {
             </div>
           </div>
 
-          {/* 催办规则说明 */}
           <div className="card border-brand-200 bg-brand-50/30">
             <div className="p-5">
               <h4 className="font-semibold text-brand-900 flex items-center gap-2 text-sm">
@@ -412,9 +409,9 @@ export default function ReminderCenter() {
               </h4>
               <div className="mt-3 space-y-2.5">
                 {[
-                  { level: 1, title: '超时提醒', desc: '节点到达时限，自动通知审批人', color: 'text-amber-600', bg: 'bg-amber-100' },
-                  { level: 2, title: '升级催办', desc: '超时×2，升级至部门主管督办', color: 'text-orange-600', bg: 'bg-orange-100' },
-                  { level: 3, title: '紧急督办', desc: '超时×3，升级至分管局领导', color: 'text-red-600', bg: 'bg-red-100' },
+                  { level: 1, title: '超时提醒', desc: '节点到达时限，系统自动通知审批人', color: 'text-amber-600', bg: 'bg-amber-100' },
+                  { level: 2, title: '升级催办', desc: 'Lv.1后30分钟未处理，升级至部门主管', color: 'text-orange-600', bg: 'bg-orange-100' },
+                  { level: 3, title: '紧急督办', desc: 'Lv.2后15分钟仍未处理，升级至局领导', color: 'text-red-600', bg: 'bg-red-100' },
                 ].map((r) => (
                   <div key={r.level} className="flex items-start gap-3">
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${r.bg} ${r.color} flex-shrink-0`}>
