@@ -54,7 +54,7 @@ const AUDIT_ICONS: Record<string, React.ComponentType<{ className?: string }>> =
 export default function ApprovalDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { archiveRequests, approvalNodes, reminderLogs, auditLogs, approveNode, rejectNode, triggerEscalation, takeNumber, currentUserId } = useAppStore();
+  const { archiveRequests, approvalNodes, reminderLogs, auditLogs, queueNumbers, approveNode, rejectNode, triggerEscalation, takeNumber, currentUserId } = useAppStore();
   const [, setTick] = useState(0);
   const [showOpinionModal, setShowOpinionModal] = useState<null | 'approve' | 'reject'>(null);
   const [opinion, setOpinion] = useState('');
@@ -70,6 +70,7 @@ export default function ApprovalDetail() {
     .filter((n) => n.requestId === id)
     .sort((a, b) => a.nodeOrder - b.nodeOrder);
   const reminders = reminderLogs.filter((r) => r.requestId === id);
+  const requestQueueNumbers = queueNumbers.filter((q) => q.requestId === id).sort((a, b) => a.takenAt - b.takenAt);
   const requestAuditLogs = auditLogs
     .filter((a) => a.requestId === id)
     .sort((a, b) => a.timestamp - b.timestamp);
@@ -289,6 +290,61 @@ export default function ApprovalDetail() {
                         <span className="badge bg-red-50 text-red-600 text-[10px] animate-pulse">
                           待签收
                         </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {requestQueueNumbers.length > 0 && (
+            <div className="card border-emerald-200">
+              <div className="card-header border-emerald-100">
+                <h3 className="font-semibold text-emerald-900 flex items-center gap-2">
+                  <Ticket className="w-4 h-4" />
+                  办理轨迹
+                  <span className="badge bg-emerald-100 text-emerald-700">{requestQueueNumbers.length} 个号码</span>
+                </h3>
+              </div>
+              <div className="divide-y divide-emerald-100">
+                {requestQueueNumbers.map((q) => (
+                  <div key={q.id} className="p-4 bg-emerald-50/30">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500 text-white">
+                        {q.numberCode}
+                      </span>
+                      <span className="text-xs text-slate-500">序号 {q.sequence}</span>
+                      {q.windowNo && (
+                        <span className="ml-auto text-[11px] text-slate-400">窗口 {q.windowNo}</span>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs">
+                        <Ticket className="w-3 h-3 text-purple-500 flex-shrink-0" />
+                        <span className="text-slate-500 w-16">取号排队</span>
+                        <span className="font-medium text-slate-700">{formatTime(q.takenAt)}</span>
+                      </div>
+                      {q.calledAt && (
+                        <div className="flex items-center gap-2 text-xs">
+                          <Volume2 className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                          <span className="text-slate-500 w-16">系统叫号</span>
+                          <span className="font-medium text-slate-700">{formatTime(q.calledAt)}</span>
+                        </div>
+                      )}
+                      {q.status === 'processing' && (
+                        <div className="flex items-center gap-2 text-xs">
+                          <UserCheck className="w-3 h-3 text-emerald-500 flex-shrink-0" />
+                          <span className="text-slate-500 w-16">确认到场</span>
+                          <span className="font-medium text-slate-700">办理中</span>
+                        </div>
+                      )}
+                      {q.completedAt && (
+                        <div className="flex items-center gap-2 text-xs">
+                          <CheckCircle className="w-3 h-3 text-emerald-600 flex-shrink-0" />
+                          <span className="text-slate-500 w-16">办理完成</span>
+                          <span className="font-medium text-slate-700">{formatTime(q.completedAt)}</span>
+                        </div>
                       )}
                     </div>
                   </div>

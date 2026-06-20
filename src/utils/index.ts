@@ -1,4 +1,4 @@
-import { SECRECY_LEVEL_MAP, type SecrecyLevel, type RequestStatus } from '@/types';
+import { SECRECY_LEVEL_MAP, type SecrecyLevel, type RequestStatus, type ReminderHandlerType } from '@/types';
 
 export function formatTime(timestamp: number): string {
   const date = new Date(timestamp);
@@ -96,17 +96,29 @@ export function getApprovalNodesBySecrecy(secrecy: SecrecyLevel): Array<{
   ];
 }
 
-export function getEscalationHandler(level: number): { handlerId: string; handlerName: string; handlerTitle: string } {
-  switch (level) {
-    case 1:
-      return { handlerId: 'u004', handlerName: '赵科长', handlerTitle: '档案科科长' };
-    case 2:
-      return { handlerId: 'u005', handlerName: '钱处长', handlerTitle: '办公室副主任' };
-    case 3:
-    default:
-      return { handlerId: 'u006', handlerName: '孙局长', handlerTitle: '分管副局长' };
+export function getEscalationHandler(
+  level: number,
+  nodeApprover?: { approverId: string; approverName: string; approverTitle: string }
+): { handlerType: ReminderHandlerType; handlerId: string; handlerName: string; handlerTitle: string } {
+  if (level === 1 && nodeApprover) {
+    return {
+      handlerType: 'self',
+      handlerId: nodeApprover.approverId,
+      handlerName: nodeApprover.approverName,
+      handlerTitle: nodeApprover.approverTitle,
+    };
   }
+  if (level === 2) {
+    return { handlerType: 'supervisor', handlerId: 'u005', handlerName: '钱处长', handlerTitle: '办公室副主任' };
+  }
+  return { handlerType: 'director', handlerId: 'u006', handlerName: '孙局长', handlerTitle: '分管副局长' };
 }
+
+export const REMINDER_HANDLER_TYPE_LABEL: Record<ReminderHandlerType, { label: string; color: string; bgColor: string }> = {
+  self: { label: '提醒本人', color: 'text-blue-700', bgColor: 'bg-blue-100 border-blue-200' },
+  supervisor: { label: '上级督办', color: 'text-orange-700', bgColor: 'bg-orange-100 border-orange-200' },
+  director: { label: '领导督办', color: 'text-red-700', bgColor: 'bg-red-100 border-red-200' },
+};
 
 export const REQUEST_STATUS_FILTERS: Array<{ key: RequestStatus | 'all'; label: string }> = [
   { key: 'all', label: '全部' },

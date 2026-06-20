@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Clock,
   AlertTriangle,
@@ -15,10 +15,13 @@ import {
   Search,
   Zap,
   Activity,
+  LayoutGrid,
+  List,
+  ArrowUpFromLine,
 } from 'lucide-react';
 import { useAppStore } from '@/store';
-import { NODE_STATUS_MAP } from '@/types';
-import { formatTime, formatRelativeTime, formatCountdown } from '@/utils';
+import { NODE_STATUS_MAP, type ReminderLog } from '@/types';
+import { formatTime, formatRelativeTime, formatCountdown, REMINDER_HANDLER_TYPE_LABEL } from '@/utils';
 import { useNavigate } from 'react-router-dom';
 
 export default function ReminderCenter() {
@@ -27,6 +30,7 @@ export default function ReminderCenter() {
   const [, setTick] = useState(0);
   const [filter, setFilter] = useState<'all' | 'mine' | 'warning' | 'escalated'>('all');
   const [search, setSearch] = useState('');
+  const [viewMode, setViewMode] = useState<'node' | 'handler'>('node');
 
   useEffect(() => {
     const timer = setInterval(() => setTick((t) => t + 1), 1000);
@@ -69,6 +73,51 @@ export default function ReminderCenter() {
   const unacknowledgedCount = reminderLogs.filter((r) => !r.acknowledged).length;
 
   const sortedReminders = [...reminderLogs].sort((a, b) => b.triggeredAt - a.triggeredAt);
+
+  const handlerGroups = useMemo(() => {
+    const map = new Map<string, {
+      handlerId: string;
+      handlerName: string;
+      handlerTitle: string;
+      selfItems: ReminderLog[];
+      supervisorItems: ReminderLog[];
+      directorItems: ReminderLog[];
+      unacknowledged: number;
+      escalatedCount: number;
+      oldestTriggeredAt: number;
+      requestIds: Set<string>;
+      nodeIds: Set<string>;
+    }>();
+
+    reminderLogs.forEach((r) => {
+      if (!map.has(r.handlerId)) {
+        map.set(r.handlerId, {
+          handlerId: r.handlerId,
+          handlerName: r.handlerName,
+          handlerTitle: r.handlerTitle,
+          selfItems: [],
+          supervisorItems: [],
+          directorItems: [],
+          unacknowledged: 0,
+          escalatedCount: 0,
+          oldestTriggeredAt: r.triggeredAt,
+          requestIds: new Set(),
+          nodeIds: new Set(),
+        });
+      }
+      const g = map.get(r.handlerId)!;
+      if (r.handlerType === 'self') g.selfItems.push(r);
+      else if (r.handlerType === 'supervisor') g.supervisorItems.push(r);
+      else g.directorItems.push(r);
+      if (!r.acknowledged) g.unacknowledged++;
+      if (r.handlerType !== 'self') g.escalatedCount++;
+      if (r.triggeredAt < g.oldestTriggeredAt) g.oldestTriggeredAt = r.triggeredAt;
+      g.requestIds.add(r.requestId);
+      g.nodeIds.add(r.nodeId);
+    });
+
+    return Array.from(map.values()).sort((a, b) => b.unacknowledged - a.unacknowledged || a.oldestTriggeredAt - b.oldestTriggeredAt);
+  }, [reminderLogs]);
 
   const filters = [
     { key: 'all' as const, label: '当前活跃节点', count: totalActive },
@@ -134,25 +183,47 @@ export default function ReminderCenter() {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="xl:col-span-2 space-y-5">
           <div className="flex items-center justify-between flex-wrap gap-4">
-            <div className="card p-1.5 inline-flex gap-1 flex-wrap">
-              {filters.map((f) => (
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="card p-1.5 inline-flex gap-1 flex-wrap">
+                {filters.map((f) => (
+                  <button
+                    key={f.key}
+                    onClick={() => setFilter(f.key)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                      filter === f.key
+                        ? 'bg-brand-500 text-white shadow-sm'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    {f.label}
+                    <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full ${
+                      filter === f.key ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'
+                    }`}>
+                      {f.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div className="card p-1 inline-flex gap-0.5">
                 <button
-                  key={f.key}
-                  onClick={() => setFilter(f.key)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    filter === f.key
-                      ? 'bg-brand-500 text-white shadow-sm'
-                      : 'text-slate-600 hover:bg-slate-100'
+                  onClick={() => setViewMode('node')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all ${
+                    viewMode === 'node' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
                   }`}
                 >
-                  {f.label}
-                  <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full ${
-                    filter === f.key ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'
-                  }`}>
-                    {f.count}
-                  </span>
+                  <List className="w-3.5 h-3.5" />
+                  按节点
                 </button>
-              ))}
+                <button
+                  onClick={() => setViewMode('handler')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all ${
+                    viewMode === 'handler' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  按责任人
+                </button>
+              </div>
             </div>
             <div className="relative max-w-xs w-full">
               <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -166,145 +237,228 @@ export default function ReminderCenter() {
             </div>
           </div>
 
-          <div className="space-y-4">
-            {filteredNodes.length === 0 ? (
-              <div className="card p-16 text-center">
-                <CheckCircle2 className="w-16 h-16 mx-auto text-emerald-400 mb-4" />
-                <p className="text-slate-500">太棒了！当前没有需要催办的审批节点</p>
-              </div>
-            ) : (
-              filteredNodes.map((node) => {
-                const req = archiveRequests.find((r) => r.id === node.requestId);
-                const cd = node.deadline ? formatCountdown(node.deadline) : { isOverdue: false, isWarning: false, text: '--:--:--' };
-                const isAssignedToMe = node.approverId === currentUserId;
-                const overduePercent = cd.isOverdue
-                  ? 100
-                  : node.deadline ? Math.min(100, 100 - ((node.deadline - Date.now()) / (node.timeoutMinutes * 60 * 1000)) * 100) : 0;
-                const nodeReminders = reminderLogs.filter((r) => r.nodeId === node.id);
+          {viewMode === 'node' ? (
+            <div className="space-y-4">
+              {filteredNodes.length === 0 ? (
+                <div className="card p-16 text-center">
+                  <CheckCircle2 className="w-16 h-16 mx-auto text-emerald-400 mb-4" />
+                  <p className="text-slate-500">太棒了！当前没有需要催办的审批节点</p>
+                </div>
+              ) : (
+                filteredNodes.map((node) => {
+                  const req = archiveRequests.find((r) => r.id === node.requestId);
+                  const cd = node.deadline ? formatCountdown(node.deadline) : { isOverdue: false, isWarning: false, text: '--:--:--' };
+                  const isAssignedToMe = node.approverId === currentUserId;
+                  const overduePercent = cd.isOverdue
+                    ? 100
+                    : node.deadline ? Math.min(100, 100 - ((node.deadline - Date.now()) / (node.timeoutMinutes * 60 * 1000)) * 100) : 0;
+                  const nodeReminders = reminderLogs.filter((r) => r.nodeId === node.id);
 
-                return (
-                  <div
-                    key={node.id}
-                    className={`card overflow-hidden hover:shadow-card-hover transition-all cursor-pointer ${
-                      cd.isOverdue ? 'border-orange-300' : node.status === 'escalated' ? 'border-red-300' : cd.isWarning ? 'border-amber-200' : ''
-                    }`}
-                    onClick={() => navigate(`/approval/${node.requestId}`)}
-                  >
-                    <div className="h-1.5 bg-slate-100 overflow-hidden">
-                      <div
-                        className={`h-full transition-all duration-1000 ${
-                          cd.isOverdue
-                            ? 'bg-gradient-to-r from-orange-500 to-red-500'
-                            : node.status === 'escalated'
-                            ? 'bg-red-500'
-                            : overduePercent > 70
-                            ? 'bg-gradient-to-r from-amber-400 to-orange-500'
-                            : 'bg-gradient-to-r from-brand-400 to-brand-600'
-                        }`}
-                        style={{ width: `${overduePercent}%` }}
-                      />
-                    </div>
-
-                    <div className="p-5">
-                      <div className="flex items-start justify-between gap-4 flex-wrap">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="font-semibold text-slate-900 truncate">{req?.title}</h3>
-                            {req && (
-                              <span className={`badge border ${
-                                req.secrecyLevel === 'public' ? 'bg-green-50 text-green-700 border-green-200' :
-                                req.secrecyLevel === 'internal' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                                req.secrecyLevel === 'secret' ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                                'bg-red-50 text-red-700 border-red-200'
-                              }`}>
-                                <Shield className="w-3 h-3 mr-1" />
-                                {req.secrecyLevel === 'public' ? '公开' : req.secrecyLevel === 'internal' ? '内部' : req.secrecyLevel === 'secret' ? '秘密' : '绝密'}
-                              </span>
-                            )}
-                            {isAssignedToMe && (
-                              <span className="badge bg-brand-50 text-brand-700 border border-brand-200">
-                                <User className="w-3 h-3 mr-1" />
-                                我负责
-                              </span>
-                            )}
-                            {node.status === 'escalated' && (
-                              <span className="badge bg-red-50 text-red-700 border border-red-200 animate-pulse">
-                                <TrendingUp className="w-3 h-3 mr-1" />
-                                已升级
-                              </span>
-                            )}
-                          </div>
-                          <div className="mt-2 flex items-center gap-3 flex-wrap text-xs text-slate-500">
-                            <span className="flex items-center gap-1">
-                              <Filter className="w-3.5 h-3.5" />
-                              {node.nodeName}
-                              <span className="text-slate-400">（第{node.nodeOrder}节点）</span>
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <User className="w-3.5 h-3.5" />
-                              审批人：<span className="font-medium text-slate-700">{node.approverName}（{node.approverTitle}）</span>
-                            </span>
-                            {nodeReminders.length > 0 && (
-                              <span className="flex items-center gap-1">
-                                <Zap className="w-3.5 h-3.5 text-amber-500" />
-                                已催办：<span className="font-medium text-amber-600">{nodeReminders.length}次</span>
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="text-right">
-                          <div className={`text-xs font-medium mb-1 ${
-                            cd.isOverdue ? 'text-red-600' : cd.isWarning ? 'text-amber-600' : 'text-slate-500'
-                          }`}>
-                            {cd.isOverdue ? '已超时时间' : cd.isWarning ? '即将超时' : '剩余时间'}
-                          </div>
-                          <div className={`font-mono font-bold text-2xl tracking-wider ${
+                  return (
+                    <div
+                      key={node.id}
+                      className={`card overflow-hidden hover:shadow-card-hover transition-all cursor-pointer ${
+                        cd.isOverdue ? 'border-orange-300' : node.status === 'escalated' ? 'border-red-300' : cd.isWarning ? 'border-amber-200' : ''
+                      }`}
+                      onClick={() => navigate(`/approval/${node.requestId}`)}
+                    >
+                      <div className="h-1.5 bg-slate-100 overflow-hidden">
+                        <div
+                          className={`h-full transition-all duration-1000 ${
                             cd.isOverdue
-                              ? 'text-red-600 animate-blink'
-                              : cd.isWarning
-                              ? 'text-amber-600'
-                              : 'text-slate-800'
-                          }`}>
-                            {cd.text}
-                          </div>
-                          <div className="text-[11px] text-slate-400 mt-0.5">
-                            截止 {node.deadline ? formatTime(node.deadline) : '尚未开始'}
-                          </div>
-                        </div>
+                              ? 'bg-gradient-to-r from-orange-500 to-red-500'
+                              : node.status === 'escalated'
+                              ? 'bg-red-500'
+                              : overduePercent > 70
+                              ? 'bg-gradient-to-r from-amber-400 to-orange-500'
+                              : 'bg-gradient-to-r from-brand-400 to-brand-600'
+                          }`}
+                          style={{ width: `${overduePercent}%` }}
+                        />
                       </div>
 
-                      {nodeReminders.length > 0 && (
-                        <div className="mt-4 flex items-center gap-2 flex-wrap pt-3 border-t border-dashed border-slate-200">
-                          <span className="text-xs text-slate-400">催办轨迹：</span>
-                          {nodeReminders.map((r) => (
-                            <span
-                              key={r.id}
-                              title={r.content}
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                r.escalationLevel >= 3
-                                  ? 'bg-red-100 text-red-700'
-                                  : r.escalationLevel === 2
-                                  ? 'bg-orange-100 text-orange-700'
-                                  : 'bg-amber-100 text-amber-700'
-                              }`}
-                            >
-                              Lv.{r.escalationLevel} → {r.handlerName}
-                              {r.acknowledged ? (
-                                <CheckCircle2 className="w-2.5 h-2.5 ml-0.5 text-emerald-600" />
-                              ) : (
-                                <span className="w-2 h-2 rounded-full bg-red-500 ml-0.5 animate-pulse" />
+                      <div className="p-5">
+                        <div className="flex items-start justify-between gap-4 flex-wrap">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-semibold text-slate-900 truncate">{req?.title}</h3>
+                              {req && (
+                                <span className={`badge border ${
+                                  req.secrecyLevel === 'public' ? 'bg-green-50 text-green-700 border-green-200' :
+                                  req.secrecyLevel === 'internal' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                  req.secrecyLevel === 'secret' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                                  'bg-red-50 text-red-700 border-red-200'
+                                }`}>
+                                  <Shield className="w-3 h-3 mr-1" />
+                                  {req.secrecyLevel === 'public' ? '公开' : req.secrecyLevel === 'internal' ? '内部' : req.secrecyLevel === 'secret' ? '秘密' : '绝密'}
+                                </span>
                               )}
-                            </span>
-                          ))}
+                              {isAssignedToMe && (
+                                <span className="badge bg-brand-50 text-brand-700 border border-brand-200">
+                                  <User className="w-3 h-3 mr-1" />
+                                  我负责
+                                </span>
+                              )}
+                              {node.status === 'escalated' && (
+                                <span className="badge bg-red-50 text-red-700 border border-red-200 animate-pulse">
+                                  <TrendingUp className="w-3 h-3 mr-1" />
+                                  已升级
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-2 flex items-center gap-3 flex-wrap text-xs text-slate-500">
+                              <span className="flex items-center gap-1">
+                                <Filter className="w-3.5 h-3.5" />
+                                {node.nodeName}
+                                <span className="text-slate-400">（第{node.nodeOrder}节点）</span>
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <User className="w-3.5 h-3.5" />
+                                审批人：<span className="font-medium text-slate-700">{node.approverName}（{node.approverTitle}）</span>
+                              </span>
+                              {nodeReminders.length > 0 && (
+                                <span className="flex items-center gap-1">
+                                  <Zap className="w-3.5 h-3.5 text-amber-500" />
+                                  已催办：<span className="font-medium text-amber-600">{nodeReminders.length}次</span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="text-right">
+                            <div className={`text-xs font-medium mb-1 ${
+                              cd.isOverdue ? 'text-red-600' : cd.isWarning ? 'text-amber-600' : 'text-slate-500'
+                            }`}>
+                              {cd.isOverdue ? '已超时时间' : cd.isWarning ? '即将超时' : '剩余时间'}
+                            </div>
+                            <div className={`font-mono font-bold text-2xl tracking-wider ${
+                              cd.isOverdue
+                                ? 'text-red-600 animate-blink'
+                                : cd.isWarning
+                                ? 'text-amber-600'
+                                : 'text-slate-800'
+                            }`}>
+                              {cd.text}
+                            </div>
+                            <div className="text-[11px] text-slate-400 mt-0.5">
+                              截止 {node.deadline ? formatTime(node.deadline) : '尚未开始'}
+                            </div>
+                          </div>
                         </div>
-                      )}
+
+                        {nodeReminders.length > 0 && (
+                          <div className="mt-4 flex items-center gap-2 flex-wrap pt-3 border-t border-dashed border-slate-200">
+                            <span className="text-xs text-slate-400">催办轨迹：</span>
+                            {nodeReminders.map((r) => {
+                              const typeLabel = REMINDER_HANDLER_TYPE_LABEL[r.handlerType];
+                              return (
+                                <span
+                                  key={r.id}
+                                  title={r.content}
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${typeLabel.bgColor} ${typeLabel.color}`}
+                                >
+                                  Lv.{r.escalationLevel} {typeLabel.label}
+                                  {r.acknowledged ? (
+                                    <CheckCircle2 className="w-2.5 h-2.5 ml-0.5 text-emerald-600" />
+                                  ) : (
+                                    <span className="w-2 h-2 rounded-full bg-red-500 ml-0.5 animate-pulse" />
+                                  )}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {handlerGroups.length === 0 ? (
+                <div className="card p-16 text-center md:col-span-2">
+                  <CheckCircle2 className="w-16 h-16 mx-auto text-emerald-400 mb-4" />
+                  <p className="text-slate-500">暂无催办责任人</p>
+                </div>
+              ) : (
+                handlerGroups.map((g) => (
+                  <div
+                    key={g.handlerId}
+                    className={`card p-5 hover:shadow-card-hover transition-all cursor-pointer ${
+                      g.unacknowledged > 0 ? 'border-amber-300 bg-amber-50/20' : ''
+                    }`}
+                    onClick={() => {
+                      const firstReq = g.requestIds.values().next().value;
+                      if (firstReq) navigate(`/approval/${firstReq}`);
+                    }}
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-slate-500 to-slate-700 flex items-center justify-center text-white text-xl font-bold flex-shrink-0 shadow-md">
+                        {g.handlerName.charAt(0)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="font-semibold text-slate-900">{g.handlerName}</h4>
+                          <span className="text-xs text-slate-500">· {g.handlerTitle}</span>
+                          {g.handlerId === currentUserId && (
+                            <span className="badge bg-brand-50 text-brand-700 border border-brand-200">
+                              <User className="w-3 h-3 mr-1" />
+                              我
+                            </span>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 mt-3">
+                          <div className="rounded-lg bg-white border border-slate-200 p-2.5 text-center">
+                            <div className={`text-2xl font-bold ${g.unacknowledged > 0 ? 'text-red-600 animate-pulse' : 'text-slate-700'}`}>
+                              {g.unacknowledged}
+                            </div>
+                            <div className="text-[10px] text-slate-500 mt-0.5">待签收</div>
+                          </div>
+                          <div className="rounded-lg bg-white border border-slate-200 p-2.5 text-center">
+                            <div className="text-2xl font-bold text-orange-600">{g.escalatedCount}</div>
+                            <div className="text-[10px] text-slate-500 mt-0.5">已升级督办</div>
+                          </div>
+                          <div className="rounded-lg bg-white border border-slate-200 p-2.5 text-center">
+                            <div className="text-lg font-bold text-slate-800">
+                              {Date.now() - g.oldestTriggeredAt > 0
+                                ? `${Math.floor((Date.now() - g.oldestTriggeredAt) / 60000)}分`
+                                : '0分'}
+                            </div>
+                            <div className="text-[10px] text-slate-500 mt-0.5">最久超时</div>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex items-center gap-1.5 flex-wrap">
+                          {g.selfItems.length > 0 && (
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${REMINDER_HANDLER_TYPE_LABEL.self.bgColor} ${REMINDER_HANDLER_TYPE_LABEL.self.color}`}>
+                              <Bell className="w-2.5 h-2.5" />
+                              提醒本人 {g.selfItems.length}
+                            </span>
+                          )}
+                          {g.supervisorItems.length > 0 && (
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${REMINDER_HANDLER_TYPE_LABEL.supervisor.bgColor} ${REMINDER_HANDLER_TYPE_LABEL.supervisor.color}`}>
+                              <ArrowUpFromLine className="w-2.5 h-2.5" />
+                              上级督办 {g.supervisorItems.length}
+                            </span>
+                          )}
+                          {g.directorItems.length > 0 && (
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${REMINDER_HANDLER_TYPE_LABEL.director.bgColor} ${REMINDER_HANDLER_TYPE_LABEL.director.color}`}>
+                              <ArrowUpRight className="w-2.5 h-2.5" />
+                              领导督办 {g.directorItems.length}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-2.5 text-[11px] text-slate-500 flex items-center gap-1">
+                          <Users className="w-3 h-3" />
+                          关联 <span className="font-medium text-slate-700">{g.requestIds.size}</span> 个申请 · 最早催办：{formatRelativeTime(g.oldestTriggeredAt)}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                );
-              })
-            )}
-          </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
 
         <div className="space-y-5">
@@ -347,16 +501,26 @@ export default function ReminderCenter() {
                             ? 'border-amber-200 bg-amber-50/50 hover:bg-amber-50'
                             : 'border-slate-200 bg-white hover:bg-slate-50'
                         }`}>
-                          <div className="flex items-start justify-between gap-2 mb-2">
-                            <span className={`badge text-[10px] ${
-                              r.escalationLevel >= 3
-                                ? 'bg-red-100 text-red-700'
-                                : r.escalationLevel === 2
-                                ? 'bg-orange-100 text-orange-700'
-                                : 'bg-amber-100 text-amber-700'
-                            }`}>
-                              {r.escalationLevel >= 3 ? '紧急督办' : r.escalationLevel === 2 ? '升级催办' : '超时提醒'}
-                            </span>
+                          <div className="flex items-start justify-between gap-2 mb-2 flex-wrap">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className={`badge text-[10px] ${
+                                r.escalationLevel >= 3
+                                  ? 'bg-red-100 text-red-700'
+                                  : r.escalationLevel === 2
+                                  ? 'bg-orange-100 text-orange-700'
+                                  : 'bg-amber-100 text-amber-700'
+                              }`}>
+                                Lv.{r.escalationLevel}
+                              </span>
+                              {(() => {
+                                const tl = REMINDER_HANDLER_TYPE_LABEL[r.handlerType];
+                                return (
+                                  <span className={`badge text-[10px] border ${tl.bgColor} ${tl.color}`}>
+                                    {tl.label}
+                                  </span>
+                                );
+                              })()}
+                            </div>
                             <span className="text-[10px] text-slate-400 whitespace-nowrap">
                               {formatRelativeTime(r.triggeredAt)}
                             </span>

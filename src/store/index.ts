@@ -293,32 +293,39 @@ export const useAppStore = create<AppState>()(
         const nextLevel = existingEscalations.length + 1;
         if (nextLevel > 3) return;
 
-        const handler = getEscalationHandler(nextLevel);
+        const handler = getEscalationHandler(nextLevel, {
+          approverId: node.approverId,
+          approverName: node.approverName,
+          approverTitle: node.approverTitle,
+        });
+
+        const contentByType = {
+          self: `【超时提醒】审批节点"${node.nodeName}"已到时限，请${handler.handlerName}（${handler.handlerTitle}）及时处理。`,
+          supervisor: `【升级催办】${node.approverName}超时未处理，已升级至其上级${handler.handlerName}（${handler.handlerTitle}）督办。`,
+          director: `【紧急督办】连续升级两次仍未处理，请${handler.handlerName}（${handler.handlerTitle}）立即处理并报备。`,
+        };
 
         const newReminder: ReminderLog = {
           id: generateId('m'),
           requestId: node.requestId,
           nodeId,
           escalationLevel: nextLevel,
+          handlerType: handler.handlerType,
           handlerId: handler.handlerId,
           handlerName: handler.handlerName,
           handlerTitle: handler.handlerTitle,
           triggeredAt: Date.now(),
-          content:
-            nextLevel === 1
-              ? `【超时提醒】审批节点"${node.nodeName}"已到时限，请${handler.handlerName}（${handler.handlerTitle}）及时处理。`
-              : nextLevel === 2
-              ? `【升级催办】${node.approverName}超时未处理，已升级至${handler.handlerName}（${handler.handlerTitle}）督办。`
-              : `【紧急督办】连续升级两次仍未处理，请${handler.handlerName}（${handler.handlerTitle}）立即处理并报备。`,
+          content: contentByType[handler.handlerType],
           acknowledged: false,
         };
 
         set((state) => {
           const actionType: AuditAction = nextLevel === 1 ? 'reminder_auto' : 'reminder_escalate';
+          const handlerTypeText = handler.handlerType === 'self' ? '提醒本人' : handler.handlerType === 'supervisor' ? '上级督办' : '领导督办';
           const logs = addLog(state, node.requestId, actionType, handler.handlerId, '系统',
             nextLevel === 1
-              ? `节点${node.nodeOrder}"${node.nodeName}"已超时，自动生成催办提醒（Lv.${nextLevel}），责任人：${handler.handlerName}（${handler.handlerTitle}）`
-              : `节点${node.nodeOrder}持续超时，催办升级至Lv.${nextLevel}，责任人：${handler.handlerName}（${handler.handlerTitle}）`,
+              ? `节点${node.nodeOrder}"${node.nodeName}"已超时，自动生成催办提醒（Lv.${nextLevel}，${handlerTypeText}），责任人：${handler.handlerName}（${handler.handlerTitle}）`
+              : `节点${node.nodeOrder}持续超时，催办升级至Lv.${nextLevel}（${handlerTypeText}），责任人：${handler.handlerName}（${handler.handlerTitle}）`,
             node.nodeOrder, node.nodeName
           );
           return {
@@ -484,7 +491,7 @@ export const useAppStore = create<AppState>()(
               q.id === queueId ? { ...q, status: 'completed' as QueueStatus, completedAt: now } : q
             ),
             archiveRequests: state.archiveRequests.map((r) =>
-              r.id === queue.requestId ? { ...r, status: 'completed' as RequestStatus } : r
+              r.id === queue.requestId ? { ...r, status: 'completed' as RequestStatus, completedAt: now } : r
             ),
             auditLogs: logs,
           };

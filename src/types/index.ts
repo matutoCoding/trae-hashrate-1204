@@ -33,6 +33,7 @@ export interface ArchiveRequest {
   currentNode: number;
   createdAt: number;
   approvedAt?: number;
+  completedAt?: number;
   rejectionReason?: string;
 }
 
@@ -52,11 +53,14 @@ export interface ApprovalNode {
   timeoutMinutes: number;
 }
 
+export type ReminderHandlerType = 'self' | 'supervisor' | 'director';
+
 export interface ReminderLog {
   id: string;
   requestId: string;
   nodeId: string;
   escalationLevel: number;
+  handlerType: ReminderHandlerType;
   handlerId: string;
   handlerName: string;
   handlerTitle: string;

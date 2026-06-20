@@ -23,6 +23,7 @@ export default function ApprovalList() {
   const { archiveRequests } = useAppStore();
   const [statusFilter, setStatusFilter] = useState<RequestStatus | 'all'>('all');
   const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState<'created' | 'completed'>('created');
 
   const filtered = archiveRequests.filter((r) => {
     if (statusFilter !== 'all' && r.status !== statusFilter) return false;
@@ -37,7 +38,14 @@ export default function ApprovalList() {
         return false;
     }
     return true;
-  }).sort((a, b) => b.createdAt - a.createdAt);
+  }).sort((a, b) => {
+    if (sortBy === 'completed') {
+      const ac = a.completedAt || 0;
+      const bc = b.completedAt || 0;
+      return bc - ac;
+    }
+    return b.createdAt - a.createdAt;
+  });
 
   const counts = REQUEST_STATUS_FILTERS.reduce((acc, f) => {
     acc[f.key] = f.key === 'all' ? archiveRequests.length : archiveRequests.filter((r) => r.status === f.key).length;
@@ -91,6 +99,26 @@ export default function ApprovalList() {
             className="input pl-10"
           />
         </div>
+        <div className="card p-1 inline-flex gap-0.5">
+          <button
+            onClick={() => setSortBy('created')}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all ${
+              sortBy === 'created' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            按申请时间
+          </button>
+          <button
+            onClick={() => setSortBy('completed')}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all ${
+              sortBy === 'completed' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            按完成时间
+          </button>
+        </div>
         <button className="btn-secondary">
           <Filter className="w-4 h-4" />
           高级筛选
@@ -107,7 +135,7 @@ export default function ApprovalList() {
                 <th>档案密级</th>
                 <th>申请人</th>
                 <th>借阅期限</th>
-                <th>申请时间</th>
+                <th>{sortBy === 'completed' ? '完成时间' : '申请时间'}</th>
                 <th>状态</th>
                 <th>操作</th>
               </tr>
@@ -168,8 +196,22 @@ export default function ApprovalList() {
                         <div className="text-sm text-slate-700">{req.borrowPeriod}</div>
                       </td>
                       <td>
-                        <div className="text-sm text-slate-700">{formatTime(req.createdAt)}</div>
-                        <div className="text-xs text-slate-400 mt-0.5">{formatRelativeTime(req.createdAt)}</div>
+                        {sortBy === 'completed' && req.completedAt ? (
+                          <>
+                            <div className="text-sm text-emerald-700 font-medium">{formatTime(req.completedAt)}</div>
+                            <div className="text-xs text-emerald-500 mt-0.5">{formatRelativeTime(req.completedAt)}办结</div>
+                          </>
+                        ) : sortBy === 'completed' ? (
+                          <>
+                            <div className="text-sm text-slate-400">—</div>
+                            <div className="text-xs text-slate-400 mt-0.5">尚未办结</div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="text-sm text-slate-700">{formatTime(req.createdAt)}</div>
+                            <div className="text-xs text-slate-400 mt-0.5">{formatRelativeTime(req.createdAt)}</div>
+                          </>
+                        )}
                       </td>
                       <td>
                         <span className={`badge ${status.bgColor} ${status.color}`}>
