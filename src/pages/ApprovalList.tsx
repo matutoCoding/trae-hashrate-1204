@@ -24,9 +24,21 @@ export default function ApprovalList() {
   const [statusFilter, setStatusFilter] = useState<RequestStatus | 'all'>('all');
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<'created' | 'completed'>('created');
+  const [completedRange, setCompletedRange] = useState<'today' | 'week' | 'month' | 'all'>('all');
+
+  const rangeStart = (() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (sortBy !== 'completed' || completedRange === 'all') return 0;
+    if (completedRange === 'today') return today.getTime();
+    if (completedRange === 'week') return today.getTime() - 7 * 24 * 60 * 60 * 1000;
+    return today.getTime() - 30 * 24 * 60 * 60 * 1000;
+  })();
 
   const filtered = archiveRequests.filter((r) => {
-    if (statusFilter !== 'all' && r.status !== statusFilter) return false;
+    if (sortBy === 'completed' && r.status !== 'completed') return false;
+    if (sortBy === 'completed' && rangeStart > 0 && (!r.completedAt || r.completedAt < rangeStart)) return false;
+    if (sortBy !== 'completed' && statusFilter !== 'all' && r.status !== statusFilter) return false;
     if (search) {
       const s = search.toLowerCase();
       if (
@@ -66,26 +78,66 @@ export default function ApprovalList() {
       </div>
 
       {/* 筛选标签 */}
-      <div className="card p-1.5 inline-flex flex-wrap gap-1">
-        {REQUEST_STATUS_FILTERS.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setStatusFilter(f.key)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
-              statusFilter === f.key
-                ? 'bg-brand-500 text-white shadow-sm'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            {f.label}
-            <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full ${
-              statusFilter === f.key ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'
-            }`}>
-              {counts[f.key] || 0}
-            </span>
-          </button>
-        ))}
-      </div>
+      {sortBy !== 'completed' && (
+        <div className="card p-1.5 inline-flex flex-wrap gap-1">
+          {REQUEST_STATUS_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setStatusFilter(f.key)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                statusFilter === f.key
+                  ? 'bg-brand-500 text-white shadow-sm'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              {f.label}
+              <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full ${
+                statusFilter === f.key ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'
+              }`}>
+                {counts[f.key] || 0}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {sortBy === 'completed' && (
+        <div className="card p-1.5 inline-flex flex-wrap gap-1 border-emerald-200 bg-emerald-50/30">
+          <span className="px-4 py-2 text-sm font-medium text-emerald-700 flex items-center gap-1.5">
+            <CheckCircle2 className="w-4 h-4" />
+            最近办结视图
+          </span>
+          {([
+            { key: 'today', label: '今天', rangeMs: 24 * 60 * 60 * 1000 },
+            { key: 'week', label: '最近一周', rangeMs: 7 * 24 * 60 * 60 * 1000 },
+            { key: 'month', label: '最近一月', rangeMs: 30 * 24 * 60 * 60 * 1000 },
+            { key: 'all', label: '全部', rangeMs: Infinity },
+          ] as const).map((r) => {
+            const count = archiveRequests.filter((x) =>
+              x.status === 'completed' &&
+              x.completedAt &&
+              x.completedAt >= (r.rangeMs === Infinity ? 0 : Date.now() - r.rangeMs)
+            ).length;
+            return (
+              <button
+                key={r.key}
+                onClick={() => setCompletedRange(r.key)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  completedRange === r.key
+                    ? 'bg-emerald-500 text-white shadow-sm'
+                    : 'text-emerald-700 hover:bg-emerald-100'
+                }`}
+              >
+                {r.label}
+                <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full ${
+                  completedRange === r.key ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700'
+                }`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* 搜索栏 */}
       <div className="flex gap-3 flex-wrap items-center">

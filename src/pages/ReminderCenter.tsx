@@ -18,6 +18,8 @@ import {
   LayoutGrid,
   List,
   ArrowUpFromLine,
+  ArrowLeft,
+  X,
 } from 'lucide-react';
 import { useAppStore } from '@/store';
 import { NODE_STATUS_MAP, type ReminderLog } from '@/types';
@@ -31,6 +33,7 @@ export default function ReminderCenter() {
   const [filter, setFilter] = useState<'all' | 'mine' | 'warning' | 'escalated'>('all');
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<'node' | 'handler'>('node');
+  const [selectedHandlerId, setSelectedHandlerId] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setTick((t) => t + 1), 1000);
@@ -374,6 +377,113 @@ export default function ReminderCenter() {
                 })
               )}
             </div>
+          ) : selectedHandlerId ? (
+            (() => {
+              const g = handlerGroups.find((h) => h.handlerId === selectedHandlerId);
+              if (!g) return null;
+              const items = [...g.selfItems, ...g.supervisorItems, ...g.directorItems].sort(
+                (a, b) => a.triggeredAt - b.triggeredAt
+              );
+              return (
+                <div className="card p-5 border-amber-200 bg-amber-50/20">
+                  <div className="flex items-center justify-between mb-5 pb-4 border-b border-slate-200">
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setSelectedHandlerId(null); }}
+                        className="w-8 h-8 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 flex items-center justify-center text-slate-600"
+                      >
+                        <ArrowLeft className="w-4 h-4" />
+                      </button>
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-slate-500 to-slate-700 flex items-center justify-center text-white text-xl font-bold shadow-md">
+                          {g.handlerName.charAt(0)}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-bold text-slate-900 text-lg">{g.handlerName}</h3>
+                            <span className="text-xs text-slate-500">{g.handlerTitle}</span>
+                          </div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            待签收 <span className="font-bold text-red-600">{g.unacknowledged}</span> ·
+                            已升级督办 <span className="font-bold text-orange-600">{g.escalatedCount}</span> ·
+                            最久超时 {Math.max(0, Math.floor((Date.now() - g.oldestTriggeredAt) / 60000))}分钟
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setSelectedHandlerId(null); }}
+                      className="w-8 h-8 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 flex items-center justify-center text-slate-600"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    {items.map((r) => {
+                      const req = archiveRequests.find((x) => x.id === r.requestId);
+                      const node = approvalNodes.find((n) => n.id === r.nodeId);
+                      const tl = REMINDER_HANDLER_TYPE_LABEL[r.handlerType];
+                      return (
+                        <div
+                          key={r.id}
+                          className={`rounded-xl border p-4 hover:shadow-sm transition-all cursor-pointer bg-white ${
+                            !r.acknowledged ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200'
+                          }`}
+                          onClick={() => navigate(`/approval/${r.requestId}`)}
+                        >
+                          <div className="flex items-start justify-between gap-3 flex-wrap">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={`badge text-[10px] ${
+                                  r.escalationLevel >= 3
+                                    ? 'bg-red-100 text-red-700'
+                                    : r.escalationLevel === 2
+                                    ? 'bg-orange-100 text-orange-700'
+                                    : 'bg-amber-100 text-amber-700'
+                                }`}>
+                                  Lv.{r.escalationLevel}
+                                </span>
+                                <span className={`badge text-[10px] border ${tl.bgColor} ${tl.color}`}>{tl.label}</span>
+                                <h4 className="font-medium text-slate-900 truncate">{req?.title}</h4>
+                              </div>
+                              <div className="mt-2 flex items-center gap-3 flex-wrap text-[11px] text-slate-500">
+                                <span className="flex items-center gap-1">
+                                  <Filter className="w-3 h-3" />
+                                  节点：{node?.nodeName || '未知节点'}（第{node?.nodeOrder ?? '?'}节点）
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  触发：{formatRelativeTime(r.triggeredAt)}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <Activity className="w-3 h-3" />
+                                  {r.acknowledged
+                                    ? `已签收 ${r.acknowledgedAt ? formatTime(r.acknowledgedAt) : ''}`
+                                    : '待签收'}
+                                </span>
+                              </div>
+                              <p className="mt-2 text-xs text-slate-600 leading-relaxed">{r.content}</p>
+                            </div>
+                            {!r.acknowledged && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  acknowledgeReminder(r.id);
+                                }}
+                                className="btn-primary px-3 py-1.5 text-xs whitespace-nowrap"
+                              >
+                                <CheckCircle2 className="w-3 h-3" />
+                                签收
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {handlerGroups.length === 0 ? (
@@ -388,10 +498,7 @@ export default function ReminderCenter() {
                     className={`card p-5 hover:shadow-card-hover transition-all cursor-pointer ${
                       g.unacknowledged > 0 ? 'border-amber-300 bg-amber-50/20' : ''
                     }`}
-                    onClick={() => {
-                      const firstReq = g.requestIds.values().next().value;
-                      if (firstReq) navigate(`/approval/${firstReq}`);
-                    }}
+                    onClick={() => setSelectedHandlerId(g.handlerId)}
                   >
                     <div className="flex items-start gap-4">
                       <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-slate-500 to-slate-700 flex items-center justify-center text-white text-xl font-bold flex-shrink-0 shadow-md">

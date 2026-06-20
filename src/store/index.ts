@@ -460,12 +460,13 @@ export const useAppStore = create<AppState>()(
         const state = get();
         const queue = state.queueNumbers.find((q) => q.id === queueId);
         if (!queue) return;
+        const now = Date.now();
 
         set((state) => {
           const logs = addLog(state, queue.requestId, 'confirm_arrival', queue.userId, queue.userName, `${queue.userName}确认到场，号码 ${queue.numberCode} 开始办理`);
           return {
             queueNumbers: state.queueNumbers.map((q) =>
-              q.id === queueId ? { ...q, status: 'processing' as QueueStatus } : q
+              q.id === queueId ? { ...q, status: 'processing' as QueueStatus, processingAt: now } : q
             ),
             auditLogs: logs,
           };
@@ -478,9 +479,36 @@ export const useAppStore = create<AppState>()(
         if (!queue) return;
 
         const now = Date.now();
+        const calledAt = queue.calledAt || now;
+        const processingAt = queue.processingAt || queue.calledAt || now;
+        const waitingDurationMinutes = Math.max(0, Math.round((calledAt - queue.takenAt) / 60000));
+        const processingDurationMinutes = Math.max(0, Math.round((now - processingAt) / 60000));
+        const totalDurationMinutes = Math.max(0, Math.round((now - queue.takenAt) / 60000));
+        const approvalNodes = state.approvalNodes.filter((n) => n.requestId === queue.requestId);
+        const approvers = approvalNodes
+          .filter((n) => n.status === 'approved')
+          .map((n) => `${n.approverName}（${n.nodeName}）`);
+
+        const summary: import('@/types').CompletionSummary = {
+          queueId: queue.id,
+          requestId: queue.requestId,
+          numberCode: queue.numberCode,
+          windowNo: queue.windowNo,
+          createdAt: now,
+          waitingDurationMinutes,
+          processingDurationMinutes,
+          totalDurationMinutes,
+          overtimeOccurred: queue.overtimeCount > 0,
+          overtimeCount: queue.overtimeCount,
+          approvalNodeCount: approvalNodes.length,
+          approvers,
+          note: `等待叫号 ${waitingDurationMinutes} 分钟，办理时长 ${processingDurationMinutes} 分钟；共经过 ${approvalNodes.length} 个审批节点，${approvers.length} 人签批`,
+        };
 
         set((state) => {
-          let logs = addLog(state, queue.requestId, 'complete_processing', 'u007', '周管理', `号码 ${queue.numberCode} 办理完成`);
+          let logs = addLog(state, queue.requestId, 'complete_processing', 'u007', '周管理',
+            `号码 ${queue.numberCode} 办理完成：等待 ${waitingDurationMinutes} 分钟，办理 ${processingDurationMinutes} 分钟，共 ${approvalNodes.length} 个审批节点${queue.overtimeCount > 0 ? `，发生 ${queue.overtimeCount} 次过号` : ''}`
+          );
 
           if (queue.requestId) {
             logs = addLog({ auditLogs: logs }, queue.requestId, 'complete_processing', 'u007', '周管理', `调卷业务办理完成，申请单号 ${queue.requestId}`);
@@ -488,7 +516,7 @@ export const useAppStore = create<AppState>()(
 
           return {
             queueNumbers: state.queueNumbers.map((q) =>
-              q.id === queueId ? { ...q, status: 'completed' as QueueStatus, completedAt: now } : q
+              q.id === queueId ? { ...q, status: 'completed' as QueueStatus, completedAt: now, summary } : q
             ),
             archiveRequests: state.archiveRequests.map((r) =>
               r.id === queue.requestId ? { ...r, status: 'completed' as RequestStatus, completedAt: now } : r

@@ -120,7 +120,7 @@ export const mockArchiveRequests: ArchiveRequest[] = [
     currentNode: 1,
     createdAt: NOW - 1000 * 60 * 60 * 30,
     approvedAt: NOW - 1000 * 60 * 60 * 28,
-    completedAt: NOW - 1000 * 60 * 60 * 24,
+    completedAt: NOW - 1000 * 60 * 60 * 26,
   },
 ];
 
@@ -336,11 +336,11 @@ export const mockAuditLogs: AuditLog[] = [
   { id: 'a050', requestId: 'r006', action: 'create_request', operatorId: 'u002', operatorName: '李四', timestamp: NOW - 1000 * 60 * 60 * 30, detail: '李四（财务处）发起调卷申请：统计年鉴数据查阅' },
   { id: 'a051', requestId: 'r006', action: 'check_clearance_pass', operatorId: 'u002', operatorName: '系统', timestamp: NOW - 1000 * 60 * 60 * 30, detail: '用户权限等级（秘密 Lv.2）≥ 档案密级（公开 Lv.0），核验通过' },
   { id: 'a052', requestId: 'r006', action: 'node_start', operatorId: 'u004', operatorName: '系统', timestamp: NOW - 1000 * 60 * 60 * 30, detail: '节点1"档案科登记"开始计时，超时时限15分钟', nodeOrder: 1, nodeName: '档案科登记' },
-  { id: 'a053', requestId: 'r006', action: 'node_approve', operatorId: 'u004', operatorName: '赵科长', timestamp: NOW - 1000 * 60 * 60 * 29, detail: '赵科长（档案科科长）通过节点1"档案科登记"，意见：公开版年鉴，可直接查阅。', nodeOrder: 1, nodeName: '档案科登记' },
-  { id: 'a054', requestId: 'r006', action: 'take_number', operatorId: 'u003', operatorName: '王五', timestamp: NOW - 1000 * 60 * 60, detail: '王五取号排队，号码 A001' },
-  { id: 'a055', requestId: 'r006', action: 'call_number', operatorId: 'u007', operatorName: '周管理', timestamp: NOW - 1000 * 60 * 40, detail: '叫号 A001，窗口1' },
-  { id: 'a056', requestId: 'r006', action: 'confirm_arrival', operatorId: 'u003', operatorName: '王五', timestamp: NOW - 1000 * 60 * 38, detail: '王五确认到场，号码 A001 开始办理' },
-  { id: 'a057', requestId: 'r006', action: 'complete_processing', operatorId: 'u007', operatorName: '周管理', timestamp: NOW - 1000 * 60 * 60 * 24, detail: '号码 A001 办理完成，调卷业务闭环结束' },
+  { id: 'a053', requestId: 'r006', action: 'node_approve', operatorId: 'u004', operatorName: '赵科长', timestamp: NOW - 1000 * 60 * 60 * 28, detail: '赵科长（档案科科长）通过节点1"档案科登记"，意见：公开版年鉴，可直接查阅。', nodeOrder: 1, nodeName: '档案科登记' },
+  { id: 'a054', requestId: 'r006', action: 'take_number', operatorId: 'u003', operatorName: '王五', timestamp: NOW - 1000 * 60 * 60 * 27, detail: '王五取号排队，号码 A001' },
+  { id: 'a055', requestId: 'r006', action: 'call_number', operatorId: 'u007', operatorName: '周管理', timestamp: NOW - 1000 * 60 * 60 * 26 - 1000 * 60 * 50, detail: '叫号 A001，窗口1' },
+  { id: 'a056', requestId: 'r006', action: 'confirm_arrival', operatorId: 'u003', operatorName: '王五', timestamp: NOW - 1000 * 60 * 60 * 26 - 1000 * 60 * 48, detail: '王五确认到场，号码 A001 开始办理' },
+  { id: 'a057', requestId: 'r006', action: 'complete_processing', operatorId: 'u007', operatorName: '周管理', timestamp: NOW - 1000 * 60 * 60 * 26, detail: '号码 A001 办理完成，调卷业务闭环结束' },
 ];
 
 export const mockQueueNumbers: QueueNumber[] = [
@@ -421,10 +421,26 @@ export const mockQueueNumbers: QueueNumber[] = [
     userId: 'u003',
     userName: '王五',
     overtimeCount: 0,
-    takenAt: NOW - 1000 * 60 * 60,
-    calledAt: NOW - 1000 * 60 * 40,
-    completedAt: NOW - 1000 * 60 * 60 * 24,
+    takenAt: NOW - 1000 * 60 * 60 * 27,
+    calledAt: NOW - 1000 * 60 * 60 * 26 - 1000 * 60 * 50,
+    processingAt: NOW - 1000 * 60 * 60 * 26 - 1000 * 60 * 48,
+    completedAt: NOW - 1000 * 60 * 60 * 26,
     windowNo: 1,
+    summary: {
+      queueId: 'q007',
+      requestId: 'r006',
+      numberCode: 'A001',
+      windowNo: 1,
+      createdAt: NOW - 1000 * 60 * 60 * 26,
+      waitingDurationMinutes: 70,
+      processingDurationMinutes: 48,
+      totalDurationMinutes: 60,
+      overtimeOccurred: false,
+      overtimeCount: 0,
+      approvalNodeCount: 1,
+      approvers: ['赵科长（档案科登记）'],
+      note: '等待叫号 70 分钟，办理时长 48 分钟；共经过 1 个审批节点，1 人签批',
+    },
   },
 ];
 

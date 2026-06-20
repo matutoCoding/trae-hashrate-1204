@@ -110,8 +110,26 @@ export interface QueueNumber {
   overtimeCount: number;
   calledAt?: number;
   takenAt: number;
+  processingAt?: number;
   completedAt?: number;
   windowNo?: number;
+  summary?: CompletionSummary;
+}
+
+export interface CompletionSummary {
+  queueId: string;
+  requestId: string;
+  numberCode: string;
+  windowNo?: number;
+  createdAt: number;
+  waitingDurationMinutes: number;
+  processingDurationMinutes: number;
+  totalDurationMinutes: number;
+  overtimeOccurred: boolean;
+  overtimeCount: number;
+  approvalNodeCount: number;
+  approvers: string[];
+  note?: string;
 }
 
 export interface OvertimeRecord {

@@ -424,20 +424,44 @@ export default function QueueManage() {
               </div>
               <div className="divide-y divide-slate-100">
                 {completed.map((p) => (
-                  <div key={p.id} className="p-4 flex items-center gap-3 opacity-75">
-                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center shadow-md">
-                      <span className="font-mono font-black text-white">{p.numberCode}</span>
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-medium text-slate-800">{p.userName}</div>
-                      <div className="text-xs text-slate-500">
-                        {p.windowNo}号窗口 · 完成于 {p.completedAt && formatTime(p.completedAt)}
+                  <div key={p.id} className="p-4 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center shadow-md">
+                        <span className="font-mono font-black text-white">{p.numberCode}</span>
                       </div>
+                      <div className="flex-1">
+                        <div className="font-medium text-slate-800">{p.userName}</div>
+                        <div className="text-xs text-slate-500">
+                          {p.windowNo}号窗口 · 完成于 {p.completedAt && formatTime(p.completedAt)}
+                        </div>
+                      </div>
+                      <span className="badge bg-teal-50 text-teal-700">
+                        <CircleCheckBig className="w-3 h-3 mr-1" />
+                        已办结
+                      </span>
                     </div>
-                    <span className="badge bg-teal-50 text-teal-700">
-                      <CircleCheckBig className="w-3 h-3 mr-1" />
-                      已办结
-                    </span>
+                    {p.summary && (
+                      <div className="ml-15 pl-4 border-l-2 border-teal-100 grid grid-cols-2 md:grid-cols-4 gap-2">
+                        <div className="rounded-lg bg-teal-50 border border-teal-100 p-2">
+                          <div className="text-[10px] text-teal-700 font-medium">等待/办理</div>
+                          <div className="text-sm font-bold text-teal-800">
+                            {p.summary.waitingDurationMinutes}分 / {p.summary.processingDurationMinutes}分
+                          </div>
+                        </div>
+                        <div className="rounded-lg bg-teal-50 border border-teal-100 p-2">
+                          <div className="text-[10px] text-teal-700 font-medium">总耗时</div>
+                          <div className="text-sm font-bold text-teal-800">{p.summary.totalDurationMinutes}分</div>
+                        </div>
+                        <div className="rounded-lg bg-teal-50 border border-teal-100 p-2">
+                          <div className="text-[10px] text-teal-700 font-medium">审批节点</div>
+                          <div className="text-sm font-bold text-teal-800">{p.summary.approvalNodeCount}个</div>
+                        </div>
+                        <div className="rounded-lg bg-teal-50 border border-teal-100 p-2">
+                          <div className="text-[10px] text-teal-700 font-medium">过号</div>
+                          <div className="text-sm font-bold text-teal-800">{p.summary.overtimeOccurred ? p.summary.overtimeCount + '次' : '无'}</div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

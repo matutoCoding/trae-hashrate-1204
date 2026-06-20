@@ -28,6 +28,8 @@ import {
   Volume2,
   UserCheck,
   CheckCircle,
+  AlertOctagon,
+  Users,
 } from 'lucide-react';
 import { useAppStore } from '@/store';
 import { REQUEST_STATUS_MAP, NODE_STATUS_MAP, SECRECY_LEVEL_MAP, AUDIT_ACTION_LABELS, type NodeStatus, type AuditAction } from '@/types';
@@ -332,11 +334,11 @@ export default function ApprovalDetail() {
                           <span className="font-medium text-slate-700">{formatTime(q.calledAt)}</span>
                         </div>
                       )}
-                      {q.status === 'processing' && (
+                      {q.processingAt && (
                         <div className="flex items-center gap-2 text-xs">
                           <UserCheck className="w-3 h-3 text-emerald-500 flex-shrink-0" />
                           <span className="text-slate-500 w-16">确认到场</span>
-                          <span className="font-medium text-slate-700">办理中</span>
+                          <span className="font-medium text-slate-700">{formatTime(q.processingAt)}</span>
                         </div>
                       )}
                       {q.completedAt && (
@@ -350,6 +352,79 @@ export default function ApprovalDetail() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {requestQueueNumbers.some((q) => q.summary) && (
+            <div className="card border-slate-300 bg-gradient-to-br from-slate-50 to-emerald-50/40">
+              <div className="card-header border-slate-200">
+                <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  办结小结
+                </h3>
+              </div>
+              {requestQueueNumbers.filter((q) => q.summary).map((q) => {
+                const s = q.summary!;
+                return (
+                  <div key={q.id} className="p-4 space-y-4">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div className="rounded-lg bg-white border border-slate-200 p-3">
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mb-1">
+                          <Hourglass className="w-3 h-3" />
+                          等待叫号
+                        </div>
+                        <div className="text-xl font-bold text-slate-800">{s.waitingDurationMinutes}<span className="text-sm font-normal text-slate-500 ml-0.5">分</span></div>
+                      </div>
+                      <div className="rounded-lg bg-white border border-slate-200 p-3">
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mb-1">
+                          <Activity className="w-3 h-3" />
+                          办理时长
+                        </div>
+                        <div className="text-xl font-bold text-emerald-700">{s.processingDurationMinutes}<span className="text-sm font-normal text-slate-500 ml-0.5">分</span></div>
+                      </div>
+                      <div className="rounded-lg bg-white border border-slate-200 p-3">
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mb-1">
+                          <Timer className="w-3 h-3" />
+                          总耗时
+                        </div>
+                        <div className="text-xl font-bold text-slate-800">{s.totalDurationMinutes}<span className="text-sm font-normal text-slate-500 ml-0.5">分</span></div>
+                      </div>
+                      <div className="rounded-lg bg-white border border-slate-200 p-3">
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mb-1">
+                          {s.overtimeOccurred ? <AlertOctagon className="w-3 h-3 text-red-500" /> : <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
+                          过号情况
+                        </div>
+                        <div className={`text-xl font-bold ${s.overtimeOccurred ? 'text-red-600' : 'text-emerald-700'}`}>
+                          {s.overtimeOccurred ? `${s.overtimeCount}次` : '无'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-white border border-slate-200 p-3">
+                      <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mb-2">
+                        <Users className="w-3 h-3" />
+                        审批节点（共 {s.approvalNodeCount} 个）
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {s.approvers.length > 0 ? (
+                          s.approvers.map((a, i) => (
+                            <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-brand-50 text-brand-700 text-xs border border-brand-200">
+                              <CheckCircle2 className="w-3 h-3" />
+                              {a}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-xs text-slate-500">无审批记录</span>
+                        )}
+                      </div>
+                    </div>
+                    {s.note && (
+                      <p className="text-xs text-slate-600 bg-white/70 border border-slate-200 rounded-lg px-3 py-2.5 leading-relaxed">
+                        <span className="font-semibold text-slate-800">总结：</span>{s.note}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
