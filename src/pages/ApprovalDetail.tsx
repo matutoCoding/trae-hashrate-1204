@@ -1,0 +1,566 @@
+import { useState, useEffect } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import {
+  ArrowLeft,
+  FileText,
+  Shield,
+  User,
+  Building,
+  CalendarDays,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  MessageSquare,
+  Send,
+  ChevronRight,
+  Ticket,
+  Hourglass,
+  Eye,
+  ThumbsUp,
+  ThumbsDown,
+} from 'lucide-react';
+import { useAppStore } from '@/store';
+import { REQUEST_STATUS_MAP, NODE_STATUS_MAP, SECRECY_LEVEL_MAP, type NodeStatus } from '@/types';
+import { formatTime, formatRelativeTime, formatCountdown } from '@/utils';
+
+export default function ApprovalDetail() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { archiveRequests, approvalNodes, reminderLogs, approveNode, rejectNode, triggerEscalation, takeNumber, currentUserId } = useAppStore();
+  const [, setTick] = useState(0);
+  const [showOpinionModal, setShowOpinionModal] = useState<null | 'approve' | 'reject'>(null);
+  const [opinion, setOpinion] = useState('');
+  const [takeNumberMsg, setTakeNumberMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    const timer = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const req = archiveRequests.find((r) => r.id === id);
+  const nodes = approvalNodes
+    .filter((n) => n.requestId === id)
+    .sort((a, b) => a.nodeOrder - b.nodeOrder);
+  const reminders = reminderLogs.filter((r) => r.requestId === id);
+
+  if (!req) {
+    return (
+      <div className="text-center py-20">
+        <FileText className="w-16 h-16 mx-auto text-slate-300 mb-4" />
+        <p className="text-slate-500 mb-4">未找到该调卷申请</p>
+        <button onClick={() => navigate('/approval')} className="btn-primary">
+          <ArrowLeft className="w-4 h-4" />
+          返回列表
+        </button>
+      </div>
+    );
+  }
+
+  const status = REQUEST_STATUS_MAP[req.status];
+  const secrecy = SECRECY_LEVEL_MAP[req.secrecyLevel];
+  const userSecrecy = SECRECY_LEVEL_MAP[req.userClearance];
+
+  const currentNode = nodes.find((n) => n.nodeOrder === req.currentNode && (n.status === 'pending' || n.status === 'timeout' || n.status === 'escalated'));
+  const isCurrentApprover = currentNode && currentNode.approverId === currentUserId;
+
+  const handleApprove = () => {
+    if (!currentNode || !opinion.trim()) return;
+    approveNode(req.id, currentNode.nodeOrder, opinion.trim());
+    setShowOpinionModal(null);
+    setOpinion('');
+  };
+
+  const handleReject = () => {
+    if (!currentNode || !opinion.trim()) return;
+    rejectNode(req.id, currentNode.nodeOrder, opinion.trim());
+    setShowOpinionModal(null);
+    setOpinion('');
+  };
+
+  const handleTakeNumber = () => {
+    const res = takeNumber(req.id, req.userId, req.userName);
+    setTakeNumberMsg(res.message);
+    if (res.success && res.numberCode) {
+      setTakeNumberMsg(`取号成功！您的号码是 ${res.numberCode}`);
+      setTimeout(() => {
+        navigate('/queue');
+      }, 2000);
+    }
+  };
+
+  return (
+    <div className="space-y-6 max-w-6xl mx-auto">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="flex items-center gap-4">
+          <button onClick={() => navigate('/approval')} className="btn-secondary py-2 px-3">
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold text-slate-900">{req.title}</h1>
+              <span className={`badge ${status.bgColor} ${status.color}`}>
+                {status.label}
+              </span>
+            </div>
+            <p className="text-sm text-slate-500 mt-1">申请编号：<span className="font-mono">{req.id}</span> · {formatRelativeTime(req.createdAt)}提交</p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          {req.status === 'approved' && (
+            <button onClick={handleTakeNumber} className="btn-success">
+              <Ticket className="w-4 h-4" />
+              取号排队
+            </button>
+          )}
+          {isCurrentApprover && (
+            <>
+              <button
+                onClick={() => setShowOpinionModal('reject')}
+                className="btn-danger"
+              >
+                <ThumbsDown className="w-4 h-4" />
+                驳回申请
+              </button>
+              <button
+                onClick={() => setShowOpinionModal('approve')}
+                className="btn-primary"
+              >
+                <ThumbsUp className="w-4 h-4" />
+                通过审批
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {takeNumberMsg && (
+        <div className="card border-emerald-200 bg-emerald-50/50">
+          <div className="p-4 flex items-center gap-3 text-emerald-700">
+            <CheckCircle2 className="w-5 h-5" />
+            <span className="font-medium">{takeNumberMsg}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* 左侧：档案和申请人信息 */}
+        <div className="lg:col-span-1 space-y-5">
+          {/* 档案信息 */}
+          <div className="card overflow-hidden">
+            <div className="bg-gradient-to-br from-brand-500 to-brand-700 p-5 text-white">
+              <div className="flex items-center gap-2 text-sm opacity-90">
+                <FileText className="w-4 h-4" />
+                档案信息
+              </div>
+              <div className="mt-3 font-mono text-lg font-bold tracking-wide">{req.archiveNo}</div>
+              <div className="mt-1 text-sm opacity-90">{req.archiveName}</div>
+              <div className="mt-4 flex items-center justify-between">
+                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-white/20 backdrop-blur`}>
+                  <Shield className="w-3 h-3" />
+                  {secrecy.label}
+                </span>
+              </div>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <div className="text-xs text-slate-500 font-medium mb-1">调卷事由</div>
+                <p className="text-sm text-slate-700 leading-relaxed">{req.reason}</p>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <CalendarDays className="w-4 h-4 text-slate-400" />
+                <span className="text-slate-500">借阅期限：</span>
+                <span className="font-medium text-slate-700">{req.borrowPeriod}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 申请人信息 */}
+          <div className="card">
+            <div className="card-header">
+              <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                <User className="w-4 h-4 text-brand-500" />
+                申请人信息
+              </h3>
+            </div>
+            <div className="p-5">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 flex items-center justify-center text-white text-lg font-bold">
+                  {req.userName.charAt(0)}
+                </div>
+                <div>
+                  <div className="font-semibold text-slate-900">{req.userName}</div>
+                  <div className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                    <Building className="w-3 h-3" />
+                    {req.userDepartment}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-500">用户权限等级</span>
+                  <span className={`badge border ${userSecrecy.bgColor} ${userSecrecy.color}`}>
+                    <Shield className="w-3 h-3 mr-1" />
+                    {userSecrecy.label}（Lv.{userSecrecy.level}）
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm mt-3">
+                  <span className="text-slate-500">权限核验</span>
+                  {userSecrecy.level >= secrecy.level ? (
+                    <span className="badge bg-emerald-50 text-emerald-700">
+                      <CheckCircle2 className="w-3 h-3 mr-1" />
+                      核验通过
+                    </span>
+                  ) : (
+                    <span className="badge bg-red-50 text-red-700">
+                      <XCircle className="w-3 h-3 mr-1" />
+                      核验不通过
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 催办记录 */}
+          {reminders.length > 0 && (
+            <div className="card border-amber-200">
+              <div className="card-header border-amber-100">
+                <h3 className="font-semibold text-amber-900 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4" />
+                  催办记录
+                  <span className="badge bg-amber-100 text-amber-700">{reminders.length}</span>
+                </h3>
+              </div>
+              <div className="divide-y divide-amber-100">
+                {reminders.map((r, idx) => (
+                  <div key={r.id} className="p-4 bg-amber-50/30">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white">
+                        Lv.{r.escalationLevel}
+                      </span>
+                      <span className="text-xs text-slate-500">第{idx + 1}次催办</span>
+                      <span className="ml-auto text-[11px] text-slate-400">{formatTime(r.triggeredAt)}</span>
+                    </div>
+                    <p className="text-xs text-slate-700 leading-relaxed">{r.content}</p>
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="text-[11px] text-slate-500">
+                        责任人：<span className="font-medium text-slate-700">{r.handlerName}（{r.handlerTitle}）</span>
+                      </span>
+                      {r.acknowledged ? (
+                        <span className="badge bg-emerald-50 text-emerald-600 text-[10px]">
+                          已签收 · {r.acknowledgedAt && formatTime(r.acknowledgedAt)}
+                        </span>
+                      ) : (
+                        <span className="badge bg-red-50 text-red-600 text-[10px] animate-pulse">
+                          待签收
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 右侧：审批流程时间线 */}
+        <div className="lg:col-span-2">
+          <div className="card h-full">
+            <div className="card-header">
+              <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                <Clock className="w-4 h-4 text-brand-500" />
+                审批流程轨迹
+              </h3>
+              <span className="text-xs text-slate-400">共 {nodes.length} 个审批节点</span>
+            </div>
+
+            <div className="p-6">
+              {/* 时间线 */}
+              <div className="relative">
+                {nodes.map((node, idx) => {
+                  const cd = formatCountdown(node.deadline);
+                  const isCurrent = currentNode?.id === node.id;
+                  return (
+                    <div key={node.id} className="relative pb-8 last:pb-0">
+                      {/* 连接线 */}
+                      {idx < nodes.length - 1 && (
+                        <div className={`absolute left-[19px] top-12 bottom-0 w-0.5 ${
+                          node.status === 'approved' ? 'bg-emerald-300' : 'bg-slate-200'
+                        }`} />
+                      )}
+
+                      <div className={`relative flex gap-5 ${isCurrent ? 'animate-pulse-slow' : ''}`}>
+                        {/* 节点圆点 */}
+                        <div className="relative z-10 flex-shrink-0">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg border-4 border-white ${
+                            node.status === 'approved'
+                              ? 'bg-emerald-500'
+                              : node.status === 'rejected'
+                              ? 'bg-red-500'
+                              : node.status === 'timeout' || node.status === 'escalated'
+                              ? 'bg-orange-500 animate-blink'
+                              : isCurrent
+                              ? 'bg-brand-500 ring-4 ring-brand-100'
+                              : 'bg-slate-300'
+                          }`}>
+                            {node.status === 'approved' ? (
+                              <CheckCircle2 className="w-5 h-5 text-white" />
+                            ) : node.status === 'rejected' ? (
+                              <XCircle className="w-5 h-5 text-white" />
+                            ) : node.status === 'timeout' || node.status === 'escalated' ? (
+                              <Hourglass className="w-5 h-5 text-white" />
+                            ) : isCurrent ? (
+                              <Eye className="w-5 h-5 text-white" />
+                            ) : (
+                              <span className="text-white text-sm font-bold">{node.nodeOrder}</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* 节点内容 */}
+                        <div className={`flex-1 rounded-xl border p-5 transition-all ${
+                          isCurrent
+                            ? 'border-brand-200 bg-brand-50/50 shadow-md'
+                            : node.status === 'rejected'
+                            ? 'border-red-200 bg-red-50/50'
+                            : node.status === 'timeout' || node.status === 'escalated'
+                            ? 'border-orange-200 bg-orange-50/50'
+                            : 'border-slate-200 bg-white'
+                        }`}>
+                          <div className="flex items-start justify-between gap-4 flex-wrap">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h4 className="font-semibold text-slate-900">
+                                  节点 {node.nodeOrder}：{node.nodeName}
+                                </h4>
+                                <span className={`badge ${
+                                  node.status === 'approved'
+                                    ? 'bg-emerald-50 text-emerald-700'
+                                    : node.status === 'rejected'
+                                    ? 'bg-red-50 text-red-700'
+                                    : node.status === 'escalated'
+                                    ? 'bg-red-50 text-red-700'
+                                    : node.status === 'timeout'
+                                    ? 'bg-orange-50 text-orange-700'
+                                    : 'bg-slate-100 text-slate-600'
+                                }`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${NODE_STATUS_MAP[node.status].dotColor} ${isCurrent ? 'animate-pulse' : ''}`} />
+                                  {NODE_STATUS_MAP[node.status].label}
+                                </span>
+                              </div>
+                              <div className="text-sm text-slate-500 mt-1 flex items-center gap-2">
+                                <User className="w-3.5 h-3.5" />
+                                <span className="font-medium text-slate-700">{node.approverName}</span>
+                                <span>·</span>
+                                <span>{node.approverTitle}</span>
+                              </div>
+                            </div>
+
+                            {/* 时间/倒计时 */}
+                            <div className="text-right">
+                              {node.status === 'pending' || isCurrent ? (
+                                <div>
+                                  <div className={`font-mono text-lg font-bold ${
+                                    cd.isOverdue
+                                      ? 'text-red-600 animate-blink'
+                                      : cd.isWarning
+                                      ? 'text-amber-600'
+                                      : 'text-brand-600'
+                                  }`}>
+                                    {cd.isOverdue ? '已超时' : cd.text}
+                                  </div>
+                                  <div className="text-[11px] text-slate-400 mt-0.5">
+                                    截止：{formatTime(node.deadline)}
+                                  </div>
+                                  {(cd.isOverdue || cd.isWarning) && isCurrentApprover && (
+                                    <button
+                                      onClick={() => triggerEscalation(node.id)}
+                                      className="mt-2 text-xs text-orange-600 hover:text-orange-700 font-medium flex items-center gap-1 ml-auto"
+                                    >
+                                      <AlertTriangle className="w-3 h-3" />
+                                      申请升级催办
+                                    </button>
+                                  )}
+                                </div>
+                              ) : node.handledAt ? (
+                                <div>
+                                  <div className="text-sm font-medium text-slate-700">
+                                    {formatTime(node.handledAt)}
+                                  </div>
+                                  <div className="text-[11px] text-slate-400 mt-0.5">
+                                    {formatRelativeTime(node.handledAt)}处理
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          {/* 审批意见 */}
+                          {node.opinion && (
+                            <div className="mt-4 p-3.5 rounded-lg bg-white/80 border border-slate-100">
+                              <div className="flex items-start gap-2">
+                                <MessageSquare className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                                <div className="flex-1">
+                                  <div className="text-[11px] font-medium text-slate-500 mb-1">
+                                    {node.status === 'approved' ? '审批意见' : '驳回理由'}
+                                  </div>
+                                  <p className="text-sm text-slate-700 leading-relaxed">{node.opinion}</p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 进度条（当前节点） */}
+                          {isCurrent && (node.status === 'pending' || node.status === 'timeout') && (
+                            <div className="mt-4">
+                              <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all duration-1000 ${
+                                    cd.isOverdue
+                                      ? 'bg-red-500'
+                                      : cd.isWarning
+                                      ? 'bg-amber-500'
+                                      : 'bg-brand-500'
+                                  }`}
+                                  style={{
+                                    width: cd.isOverdue
+                                      ? '100%'
+                                      : `${Math.max(5, 100 - ((node.deadline - Date.now()) / (node.timeoutMinutes * 60 * 1000)) * 100)}%`,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* 最终状态 */}
+                <div className="relative flex gap-5">
+                  <div className="relative z-10 flex-shrink-0">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg border-4 border-white ${
+                      req.status === 'approved' || req.status === 'queuing' || req.status === 'completed'
+                        ? 'bg-emerald-500'
+                        : req.status === 'rejected'
+                        ? 'bg-red-500'
+                        : 'bg-slate-300'
+                    }`}>
+                      {req.status === 'rejected' ? (
+                        <XCircle className="w-5 h-5 text-white" />
+                      ) : (
+                        <CheckCircle2 className="w-5 h-5 text-white" />
+                      )}
+                    </div>
+                  </div>
+                  <div className={`flex-1 rounded-xl border p-5 ${
+                    req.status === 'rejected'
+                      ? 'border-red-200 bg-red-50/50'
+                      : req.status === 'approved' || req.status === 'queuing' || req.status === 'completed'
+                      ? 'border-emerald-200 bg-emerald-50/50'
+                      : 'border-slate-200 bg-slate-50'
+                  }`}>
+                    <h4 className="font-semibold text-slate-900 flex items-center gap-2">
+                      流程终点
+                      <ChevronRight className="w-4 h-4 text-slate-400" />
+                      <span className={`badge ${status.bgColor} ${status.color}`}>
+                        {status.label}
+                      </span>
+                    </h4>
+                    <div className="text-sm text-slate-600 mt-2">
+                      {req.status === 'rejected' && (
+                        <>
+                          <p className="text-red-700 mb-2">申请被驳回，原因如下：</p>
+                          <p className="bg-white/80 p-3 rounded-lg border border-red-100">
+                            {req.rejectionReason || '未填写驳回理由'}
+                          </p>
+                        </>
+                      )}
+                      {req.status === 'approved' && (
+                        <p>审批全部通过，<Link to="/queue/take" className="text-brand-600 font-medium hover:underline">前往取号排队 →</Link></p>
+                      )}
+                      {req.status === 'queuing' && (
+                        <p>已加入等待队列，<Link to="/queue" className="text-brand-600 font-medium hover:underline">查看叫号大屏 →</Link></p>
+                      )}
+                      {req.status === 'completed' && (
+                        <p>调卷业务已办理完成</p>
+                      )}
+                      {(req.status === 'approving' || req.status === 'checking') && (
+                        <p className="text-slate-500">请等待后续节点审批完成</p>
+                      )}
+                      {req.approvedAt && (
+                        <p className="text-xs text-slate-500 mt-2">
+                          完成时间：{formatTime(req.approvedAt)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 审批意见弹窗 */}
+      {showOpinionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className={`px-6 py-4 ${
+              showOpinionModal === 'approve' ? 'bg-emerald-50 border-b border-emerald-100' : 'bg-red-50 border-b border-red-100'
+            }`}>
+              <h3 className={`font-bold text-lg ${
+                showOpinionModal === 'approve' ? 'text-emerald-900' : 'text-red-900'
+              }`}>
+                {showOpinionModal === 'approve' ? '通过审批' : '驳回申请'}
+              </h3>
+              <p className={`text-sm mt-1 ${
+                showOpinionModal === 'approve' ? 'text-emerald-700' : 'text-red-700'
+              }`}>
+                节点：{currentNode?.nodeName} · 审批人：{currentNode?.approverName}
+              </p>
+            </div>
+            <div className="p-6">
+              <label className="label">
+                {showOpinionModal === 'approve' ? '审批意见' : '驳回理由'} <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                className="textarea"
+                rows={4}
+                value={opinion}
+                onChange={(e) => setOpinion(e.target.value)}
+                placeholder={
+                  showOpinionModal === 'approve'
+                    ? '请填写审批意见（如：材料齐全，同意调阅，请按规定办理...）'
+                    : '请详细说明驳回理由，以便申请人修改或补充材料...'
+                }
+                autoFocus
+              />
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowOpinionModal(null);
+                  setOpinion('');
+                }}
+                className="btn-secondary"
+              >
+                取消
+              </button>
+              <button
+                onClick={showOpinionModal === 'approve' ? handleApprove : handleReject}
+                disabled={!opinion.trim()}
+                className={showOpinionModal === 'approve' ? 'btn-success' : 'btn-danger'}
+              >
+                <Send className="w-4 h-4" />
+                确认{showOpinionModal === 'approve' ? '通过' : '驳回'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
